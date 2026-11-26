@@ -1,4 +1,4 @@
-# run-test.ps1 — run the built victory.exe with measured GTX 1660 settings,
+# run-test.ps1 — run the built victory.exe with measured settings,
 # then auto-extract only the important error parts via analyze-log.ps1.
 #
 # usage: .\scripts\run-test.ps1 -Game <path-to-your-game-exe>
@@ -31,10 +31,12 @@ if (-not (Test-Path $Game)) {
     Write-Host "run-test.ps1: game executable not found: $Game"; exit 2
 }
 
-# Measured GTX 1660 settings (scripts/settings.env)
+# Measured settings (scripts/settings.env)
+# Mid-range defaults: CARD_BUFFERS_MB=1024 can exhaust commit on 6 GB laptop
+# cards; 512 leaves more headroom. MipDrop=3 keeps textures soft enough to fit.
 $settings = [ordered]@{
-    # Measured GTX 1660 settings (user-provided overrides):
-    VICTORY_CARD_BUFFERS_MB     = '1024'
+    # Measured settings (user-provided overrides):
+    VICTORY_CARD_BUFFERS_MB     = '512'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '1'

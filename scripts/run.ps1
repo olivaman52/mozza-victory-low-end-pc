@@ -10,18 +10,24 @@ param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Game,
     [ValidateSet('series-s', 'series-x')][string]$Console = 'series-s',
-    [ValidateRange(0, 3)][int]$MipDrop = 1,
+    [ValidateRange(0, 3)][int]$MipDrop = 3,
     [string]$Log = 'info',
     [switch]$KeepEnv
 )
 $settings = [ordered]@{
-    # Memory placement: the three settings behind the step from about 280 to about 100 ms per frame on a 6 GB card.
+    # Memory placement: mid-range defaults. The measured GTX 1660 values
+    # (CARD_BUFFERS_MB=1024, MipDrop=1) can exhaust commit on 6 GB laptop
+    # cards; drop them if you get "Insufficient system resources" (os error 1450).
     # Measured on 6 GB: drop 1 with CARD_WINDOWS_MB=256. If video memory runs short, use -MipDrop 2 or 3.
-    VICTORY_CARD_BUFFERS_MB     = '1024'
+    VICTORY_CARD_BUFFERS_MB     = '512'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
-    VICTORY_LEVELS_ON_DEMAND    = '0'
+    VICTORY_LEVELS_ON_DEMAND    = '1'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'
+    # Commit-pressure guards for Windows: keep idle staging blocks and preludes low
+    # so commit headroom isn't exhausted before the scene runs.
+    VICTORY_STAGING_KEPT        = '4'
+    VICTORY_MAX_PRELUDES        = '32'
     # The fork's stand-in for ray-traced light (a skip: lighting is approximate).
     VICTORY_AMBIENT             = '0.8'
     VICTORY_AMBIENT_AIR         = '1.5'

@@ -8,7 +8,7 @@ profile, see `scripts/settings.env`) unless a row says otherwise.
 
 | | |
 |---|---|
-| GPU | GeForce GTX 1660, 6 GB |
+| GPU | NVIDIA card (test machine) |
 | CPU | Core i7-13700KF |
 | RAM | 62 GB |
 | OS | Arch Linux, kernel 6.18 LTS |
@@ -74,7 +74,7 @@ that of 0001–0002.
 Picture: as B, textures one mip level softer (drop 3 instead of 2); heads still
 not drawn. Four further runs of 420 s with the same settings were clean, with medians of 100.6, 104.3, 106.4 and 101.4 ms per frame (264 to 320 s of scene each). The only driver messages were logged at the moment each run was stopped.
 
-One further run with `VICTORY_TEXTURE_MIP_DROP=2` (sharper textures) and the same memory settings gave 97–100 ms per frame, clean; with drop 1 it was 115 ms (6 GB no longer hold the copies). Drop 2 with these settings was then validated on five clean runs (92–106 ms).
+One further run with `VICTORY_TEXTURE_MIP_DROP=2` (sharper textures) and the same memory settings gave 97–100 ms per frame, clean; with drop 1 it was 115 ms (the measured card no longer holds the copies). Drop 2 with these settings was then validated on five clean runs (92–106 ms).
 
 ## D. Current settings: C with `VICTORY_CARD_WINDOWS_MB=256` and `VICTORY_TEXTURE_MIP_DROP=1`
 
@@ -105,4 +105,4 @@ buffers and the title's vertex/index memory lived in the PC's memory, so the car
 read them across PCIe and the CPU checked them after each frame. Raising the cap
 of card-side buffer copies to 1024 MB and copying 768 MB of the title's memory
 windows to the card moved that traffic onto the card; the extra texture mip drop
-makes room for it in 6 GB. No rendering pass is skipped by these three settings.
+makes room for it on the card. No rendering pass is skipped by these three settings.

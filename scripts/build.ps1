@@ -30,8 +30,12 @@ try {
     Write-Host "  full log: $buildLog"
 
     # Run cargo, tee to console and capture everything to the build log.
-    $proc = Start-Process -FilePath 'cargo' -ArgumentList (@('build', '-p', 'victory', '--target', 'x86_64-pc-windows-msvc') + $args) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $buildLog -RedirectStandardError $buildLog
+    $errLog = Join-Path $root "build-err-$ts.txt"
+    $proc = Start-Process -FilePath 'cargo' -ArgumentList (@('build', '-p', 'victory', '--target', 'x86_64-pc-windows-msvc') + $args) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $buildLog -RedirectStandardError $errLog
     $code = $proc.ExitCode
+    # Merge stderr into the full log so nothing is lost.
+    try { Add-Content -Path $buildLog -Path $errLog } catch {}
+    Remove-Item -Path $errLog -ErrorAction SilentlyContinue
 
     $end = Get-Date
     $seconds = ($end - $start).TotalSeconds

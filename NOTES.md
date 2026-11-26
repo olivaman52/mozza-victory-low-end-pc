@@ -1,4 +1,4 @@
-# NOTES — "no shared buffer" 0x8007000E OOM (victory-run3.log)
+# NOTES — "no shared buffer" 0x8007000E OOM
 
 ## Status
 FIX APPLIED, committed, pushed, and build-verified (cargo check clean).
@@ -18,7 +18,7 @@ FIX APPLIED, committed, pushed, and build-verified (cargo check clean).
 - `pool.rs:34` `const SPARE_KEPT: usize = 64;` — up to 64 empty blocks kept = **4 GiB held idle**.
 - `pool.rs:44-64` `room()`: `limit = spares(memory, keep_freed() && !pressure)` returns `SPARE_KEPT` (64) whenever VRAM use is under 85 % (`pool.rs:68`). That same `limit` was applied to the **STAGING** pool (`pool.rs:54-63`, `staging_limit = limit` when not critical/pressured).
 
-STAGING blocks are `Upload` resources — mapped system-RAM upload buffers (PC memory/commit), not VRAM. Because GTX 1660 VRAM is only ~32% used (< 85 %), `room()` let the staging pool retain ~4 GiB of **idle PC-memory upload buffers**. Together with the measured 1024+768 MB card-copy reservation and private-memory growth (5.4→7.7 GB), Windows commit headroom (already ~1 GiB at frame 11) was exhausted, so each 4 MB "no shared buffer" allocation failed with `0x8007000E`.
+STAGING blocks are `Upload` resources — mapped system-RAM upload buffers (PC memory/commit), not VRAM. Because the card's VRAM is only ~32% used (< 85 %), `room()` let the staging pool retain ~4 GiB of **idle PC-memory upload buffers**. Together with the measured 1024+768 MB card-copy reservation and private-memory growth (5.4→7.7 GB), Windows commit headroom (already ~1 GiB at frame 11) was exhausted, so each 4 MB "no shared buffer" allocation failed with `0x8007000E`.
 
 Contributing: `cool_fox/crates/victory-gpu/src/host.rs:374-401` `ram_idle_ms()` only relaxed RAM-cache retention below 2 GiB free physical / 4 GiB; it did not react to commit headroom, so the 4 GiB of idle staging stayed committed long past the point Windows could spare it.
 
@@ -33,7 +33,7 @@ Contributing: `cool_fox/crates/victory-gpu/src/host.rs:374-401` `ram_idle_ms()` 
 
 Files: `cool_fox/crates/victory-gpu/src/pool.rs` (primary), `cool_fox/crates/victory-gpu/src/host.rs` (ram_idle_ms).
 
-## Addendum — 2026-11-26, user-provided GTX 1660 settings + VICTORY_STAGING_KEPT
+## Addendum — 2026-11-26, user-provided settings + VICTORY_STAGING_KEPT
 
 New run (victory-run3.log) still hit one `0x8007000E` OOM at line 58531 ("no host list for a state prelude"), with private memory climbing to ~15.7 GB and preludes growing from 126 → 876. Commit headroom (15,160 MiB available at start) was exhausted before critical-commit gating could release idle staging blocks.
 

@@ -63,6 +63,7 @@ cool_fox/victory.toml
 *.zip
 *.7z
 *.rar
+*.txt
 
 # Editor / OS noise
 .vs/
