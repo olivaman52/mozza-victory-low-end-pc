@@ -369,8 +369,9 @@ pub(crate) fn keep_freed() -> bool {
 
 /// Effective idle timeout (in milliseconds) for system-RAM caches (staging
 /// buffers, loose shadows, and the mapped pipeline library), scaled down
-/// when free physical RAM is low. Never returns less than 2,000 ms.
-/// With plenty of it five minutes ([`keep_freed`]).
+/// when free physical RAM is low, and again when OS commit headroom is low
+/// so RAM caches shrink before commit exhaustion. Never returns less than
+/// 2,000 ms. With plenty of it five minutes ([`keep_freed`]).
 pub(crate) fn ram_idle_ms(avail_phys: Option<u64>) -> u64 {
     let effective = match (avail_phys, crate::residency::headroom()) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -378,6 +379,11 @@ pub(crate) fn ram_idle_ms(avail_phys: Option<u64>) -> u64 {
     };
     ram_idle_for(effective, keep_freed() && !crate::residency::limited_host_ram())
 }
+
+/// Threshold below which commit headroom is treated as scarce: RAM caches
+/// use their shortest idle timeout so they shrink early rather than hold
+/// idle system memory while commit headroom is exhausted.
+const COMMIT_SCARCE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 fn ram_idle_for(avail_phys: Option<u64>, keep: bool) -> u64 {
     const GIB: u64 = 1024 * 1024 * 1024;
@@ -391,7 +397,11 @@ fn ram_idle_for(avail_phys: Option<u64>, keep: bool) -> u64 {
     let Some(avail) = avail_phys else {
         return NORMAL_MS;
     };
-    if avail < 2 * GIB {
+    // Commit headroom scarce: treat even abundant physical RAM as limited so
+    // idle caches give memory back early.
+    let commit_scarc = crate::residency::headroom()
+        .is_some_and(|h| h < COMMIT_SCARCE_BYTES);
+    if avail < 2 * GIB || commit_scarc {
         HIGH_MS
     } else if avail < 4 * GIB {
         MODERATE_MS

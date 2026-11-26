@@ -52,12 +52,21 @@ pub(crate) fn room(memory: Option<[u64; 4]>) {
         pool.reclaim(tick, limit, true);
     }
     if let Ok(mut pool) = STAGING.try_lock() {
+        // Staging buffers are mapped PC memory (commit), not VRAM: their idle
+        // retention must not inherit the VRAM-driven spare limit (SPARE_KEPT,
+        // up to 4 GiB kept idle when VRAM use is under 85 %). Cap at
+        // STAGING_KEPT (512 MiB), and shrink further when commit headroom is
+        // tight. SPARE_KEPT stays for the VRAM texture pool only.
         let staging_limit = if crate::residency::critical_commit() {
             0
         } else if pressure {
             1
+        } else if crate::residency::headroom()
+            .is_some_and(|h| h < 2 * 1024 * 1024 * 1024)
+        {
+            STAGING_KEPT / 2
         } else {
-            limit
+            STAGING_KEPT
         };
         pool.reclaim(tick, staging_limit, true);
     }
