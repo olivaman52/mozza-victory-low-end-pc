@@ -45,3 +45,14 @@ Applied user settings to `scripts/run-test.ps1` and `scripts/settings.env`:
 `cool_fox/crates/victory-gpu/src/pool.rs`: added `VICTORY_STAGING_KEPT` env var to override the
 hard-coded `STAGING_KEPT = 8` idle staging blocks (each 64 MiB of PC commit memory). Default remains 8;
 `run-test.ps1` now sets 4 to free ~256 MiB of commit earlier, before headroom is exhausted.
+
+## Addendum — 2026-11-26, prelude recycling (`VICTORY_MAX_PRELUDES`)
+
+New run (victory-run3.log) still hit one `0x8007000E` OOM at line 58531 ("no host list for a state prelude"), with private memory climbing to ~15.7 GB and preludes growing from 126 → 876 (~4.4 GB of commit memory). Commit headroom was exhausted before critical-commit gating could release idle staging blocks — per-host-list preludes were the main remaining commit consumer.
+
+`cool_fox/crates/victory-gpu/src/host.rs`: added prelude pooling.
+- `PRELUDE_IDLE`: a static pool of free preludes (allocator + closed list). Used preludes go back here when their `HostList` is dropped (via `PreludeSlot::Drop`), instead of being released.
+- `make_prelude()` draws from `PRELUDE_IDLE` before creating a new allocator/list, so a prelude is reused across many lists instead of each list growing its own forever.
+- `VICTORY_MAX_PRELUDES` env var caps idle preludes kept (default 64; 0: none kept). `PreludeSlot::Drop` only returns a prelude to the pool while `idle.len() < max_preludes()`; above that the prelude is released and its ~5 MB of commit is reclaimed.
+
+Preludes were created on demand and never recycled: every list that ever needed texture transitions owned one prelude for its whole life. With ~630+ lists, that is thousands of allocator+list objects (~5 MB each) all committed at once — exactly the 126→876 growth and ~4.4 GB of commit memory that exhausted Windows commit headroom before OOM. CardWork preludes (sync/check/fetch) were already recycled via `card_done()`; this brings per-list preludes in line.

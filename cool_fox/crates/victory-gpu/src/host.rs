@@ -778,6 +778,68 @@ pub(crate) static ALIVE: [std::sync::atomic::AtomicU64; 8] = [const { std::sync:
 /// makes at its start).
 pub(crate) static LISTS: [std::sync::atomic::AtomicU64; 4] = [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
+/// Host preludes that have been used and are free to reuse: each is an
+/// allocator and a closed command list, about 5 MB of commit memory. Lists
+/// that never need texture transitions never have one, but every list that
+/// did grew its own prelude and never let go — the prelude count climbed
+/// 126→876 (~4.4 GB of commit) until Windows commit headroom was gone and
+/// the run died with 0x8007000E. Used preludes go back here instead of being
+/// released, so a later list that needs transitions reuses one.
+static PRELUDE_IDLE: std::sync::Mutex<Vec<Prelude>> = std::sync::Mutex::new(Vec::new());
+
+/// The most idle preludes kept. `VICTORY_MAX_PRELUDES` overrides; 0 means
+/// none are kept (each is released right after its list is reset).
+const PRELUDE_IDLE_MOST: usize = 64;
+
+fn max_preludes() -> usize {
+    static ON: OnceLock<usize> = OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var_os("VICTORY_MAX_PRELUDES")
+            .and_then(|v| v.to_string_lossy().parse().ok())
+            .unwrap_or(PRELUDE_IDLE_MOST)
+    })
+}
+
+/// A slot holding a host list's prelude: an allocator and a closed command
+/// list (~5 MB of commit memory each). When the slot is dropped, the prelude
+/// goes back to [`PRELUDE_IDLE`] instead of being released, so a later list
+/// that needs texture transitions can reuse it. Without this, every list
+/// that ever needed transitions grew its own prelude and never let go — the
+/// prelude count climbed 126→876 (~4.4 GB of commit) until Windows commit
+/// headroom was gone and the run died with 0x8007000E.
+struct PreludeSlot {
+    inner: OnceLock<Option<Prelude>>,
+}
+
+impl PreludeSlot {
+    fn new() -> Self {
+        Self { inner: OnceLock::new() }
+    }
+
+    fn set(&self, prelude: Option<Prelude>) -> Result<(), Option<Prelude>> {
+        self.inner.set(prelude)
+    }
+
+    fn get_or_init<F>(&self, f: F) -> Option<&Prelude>
+    where
+        F: FnOnce() -> Option<Prelude>,
+    {
+        self.inner.get_or_init(|| f()).as_ref()
+    }
+}
+
+impl Drop for PreludeSlot {
+    fn drop(&mut self) {
+        let old = std::mem::replace(&mut self.inner, OnceLock::new());
+        if let Some(prelude) = old.into_inner().flatten() {
+            let mut idle = PRELUDE_IDLE.lock().unwrap_or_else(|e| e.into_inner());
+            if idle.len() < max_preludes() {
+                idle.push(prelude);
+            }
+        }
+    }
+}
+
 /// The process's private bytes (diagnostics: around the making of lists).
 #[cfg(feature = "diagnostics")]
 fn private_bytes() -> u64 {
@@ -1181,8 +1243,10 @@ pub(crate) struct HostList {
     /// twin ([`TwinUse`]).
     twins: Mutex<std::collections::HashMap<usize, TwinUse>>,
     /// The list that runs those transitions just before this one, made
-    /// when the list first has such transitions ([`lazy_prelude`]).
-    prelude: OnceLock<Option<Prelude>>,
+    /// when the list first has such transitions ([`lazy_prelude`]). Held in
+    /// a [`PreludeSlot`] so that when the list is dropped its prelude goes
+    /// back to [`PRELUDE_IDLE`] instead of being released.
+    prelude: PreludeSlot,
     /// The pipelines the list binds, for reports of slow submissions.
     pipelines: std::sync::Arc<Mutex<std::collections::BTreeSet<String>>>,
     /// What its indirect executions ran, for the report of a removed device.
@@ -4039,6 +4103,11 @@ impl Host {
 
     /// An allocator and a closed list for a prelude.
     fn make_prelude(&self) -> Option<Prelude> {
+        // Reuse an idle prelude first: one allocator + one list (~5 MB of
+        // commit) saved from being made again.
+        if let Some(prelude) = PRELUDE_IDLE.lock().unwrap_or_else(|e| e.into_inner()).pop() {
+            return Some(prelude);
+        }
         // SAFETY: plain object creation.
         let made: windows::core::Result<Prelude> = unsafe {
             (|| {
@@ -4073,7 +4142,7 @@ impl Host {
                 &allocator,
                 None,
             )?;
-            let prelude = OnceLock::new();
+            let prelude = PreludeSlot::new();
             if !lazy_prelude() {
                 let _ = prelude.set(self.make_prelude());
             }
@@ -6709,7 +6778,6 @@ impl HostList {
         let Some((allocator, list)) = self
             .prelude
             .get_or_init(|| host().and_then(|h| h.make_prelude()))
-            .as_ref()
         else {
             fail(format_args!("no host list for a state prelude"));
         };

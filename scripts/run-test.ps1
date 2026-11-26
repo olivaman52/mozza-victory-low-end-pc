@@ -45,6 +45,7 @@ $settings = [ordered]@{
     VICTORY_WAVE_WIDE           = ''
     VICTORY_PIPELINE_BOOK       = '1'
     VICTORY_STAGING_KEPT        = '4'
+    VICTORY_MAX_PRELUDES        = '32'
     VICTORY_AMBIENT             = '0.8'
     VICTORY_AMBIENT_AIR         = '1.5'
     VICTORY_TEXTURE_NO_WAIT     = '1'

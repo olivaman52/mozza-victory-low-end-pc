@@ -19,6 +19,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::c_void;
+use std::sync::OnceLock;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
@@ -34,12 +35,15 @@ const SPARE: usize = 2;
 const SPARE_KEPT: usize = 64;
 /// The same of blocks of staging buffers, which are the PC's memory: run
 /// crash-1 held 5.2 GB of them. Override with `VICTORY_STAGING_KEPT`.
-const STAGING_KEPT: usize = staging_kept();
 fn staging_kept() -> usize {
     std::env::var("VICTORY_STAGING_KEPT")
         .ok()
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(8)
+}
+fn staging_kept_once() -> usize {
+    static ON: OnceLock<usize> = OnceLock::new();
+    *ON.get_or_init(staging_kept)
 }
 /// How many are kept now.
 static SPARES: AtomicUsize = AtomicUsize::new(SPARE);
@@ -57,11 +61,11 @@ pub(crate) fn room(memory: Option<[u64; 4]>) {
     if let Ok(mut pool) = TEXTURES.try_lock() {
         pool.reclaim(tick, limit, true);
     }
-    if let Ok(mut pool) = STAGING.try_lock() {
+    if let Ok(mut pool) = staging_pool().try_lock() {
         // Staging buffers are mapped PC memory (commit), not VRAM: their idle
         // retention must not inherit the VRAM-driven spare limit (SPARE_KEPT,
         // up to 4 GiB kept idle when VRAM use is under 85 %). Cap at
-        // STAGING_KEPT (512 MiB), and shrink further when commit headroom is
+        // staging_kept_once() (512 MiB), and shrink further when commit headroom is
         // tight. SPARE_KEPT stays for the VRAM texture pool only.
         let staging_limit = if crate::residency::critical_commit() {
             0
@@ -70,9 +74,9 @@ pub(crate) fn room(memory: Option<[u64; 4]>) {
         } else if crate::residency::headroom()
             .is_some_and(|h| h < 2 * 1024 * 1024 * 1024)
         {
-            STAGING_KEPT / 2
+            staging_kept_once() / 2
         } else {
-            STAGING_KEPT
+            staging_kept_once()
         };
         pool.reclaim(tick, staging_limit, true);
     }
@@ -362,7 +366,10 @@ struct Upload(ID3D12Resource, *mut u8);
 unsafe impl Send for Upload {}
 
 static TEXTURES: Mutex<Pool<ID3D12Heap>> = Mutex::new(Pool::new(SPARE_KEPT));
-static STAGING: Mutex<Pool<Upload>> = Mutex::new(Pool::new(STAGING_KEPT));
+static STAGING: OnceLock<Mutex<Pool<Upload>>> = OnceLock::new();
+fn staging_pool() -> &'static Mutex<Pool<Upload>> {
+    STAGING.get_or_init(|| Mutex::new(Pool::new(staging_kept_once())))
+}
 
 fn lock<T>(m: &'static Mutex<T>) -> std::sync::MutexGuard<'static, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -380,7 +387,7 @@ pub(crate) fn texture_room() -> u64 {
 /// For the memory line: blocks of textures and of staging buffers, in MiB.
 #[cfg(feature = "diagnostics")]
 pub(crate) fn memory() -> [u64; 2] {
-    [lock(&TEXTURES).blocks() as u64 * (BLOCK >> 20), lock(&STAGING).blocks() as u64 * (BLOCK >> 20)]
+    [lock(&TEXTURES).blocks() as u64 * (BLOCK >> 20), lock(staging_pool()).blocks() as u64 * (BLOCK >> 20)]
 }
 
 /// Part of a block of mapped upload memory, back in the pool when dropped.
@@ -388,7 +395,7 @@ pub(crate) struct StagingPiece(Piece);
 
 impl Drop for StagingPiece {
     fn drop(&mut self) {
-        lock(&STAGING).give(self.0, now());
+        lock(staging_pool()).give(self.0, now());
     }
 }
 
@@ -400,7 +407,7 @@ pub(crate) fn staging(host: &crate::host::Host, bytes: u64) -> Option<(StagingPi
     }
     // Copies from a buffer begin at multiples of 512.
     let bytes = bytes.next_multiple_of(512);
-    let (piece, memory, again) = lock(&STAGING).take(bytes, 512, now(), || {
+    let (piece, memory, again) = lock(staging_pool()).take(bytes, 512, now(), || {
         // Only gate speculative bindless prefetch on staging-pool growth
         // headroom; table-bound textures and decoration bakes are sampled
         // immediately and would otherwise read uninitialized/reused VRAM.
@@ -634,7 +641,7 @@ mod tests {
 
     #[test]
     fn budget_tick_reclaims_idle_blocks_without_reusing_live_or_resting_pieces() {
-        let mut pool = Pool::new(STAGING_KEPT);
+        let mut pool = Pool::new(staging_kept_once());
         let (held, _, _) = pool.take(BLOCK / 2, 1, 0, || Some(1)).unwrap();
         let (resting, _, _) = pool.take(BLOCK / 2, 1, 0, || Some(2)).unwrap();
         pool.give(resting, 0);
@@ -642,7 +649,7 @@ mod tests {
             pool.add(i, 0);
         }
         pool.reclaim(0, SPARE_KEPT, true);
-        assert_eq!(pool.blocks(), STAGING_KEPT + 1);
+        assert_eq!(pool.blocks(), staging_kept_once() + 1);
         pool.reclaim(REST - 1, SPARE, true);
         assert_eq!(pool.blocks(), SPARE + 1);
         assert_eq!(pool.resting.len(), 1);
@@ -754,7 +761,7 @@ mod tests {
             assert!(at.is_multiple_of(512));
             std::ptr::write_bytes(data, 0xAB, 4096);
             drop(piece);
-            lock(&STAGING).rested(u64::MAX);
+            lock(staging_pool()).rested(u64::MAX);
             let (_piece, _, _, data) = staging(host, 4096).unwrap();
             assert!((0..4096).all(|i| *data.add(i) == 0));
             // SAFETY: plain query.

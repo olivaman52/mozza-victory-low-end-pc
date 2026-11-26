@@ -179,12 +179,23 @@ The following overrides were applied to `scripts/run-test.ps1` and
 | `VICTORY_WAVE_WIDE` | `` (empty) | Wave wide mode off |
 | `VICTORY_PIPELINE_BOOK` | `1` | Pipeline book enabled |
 | `VICTORY_STAGING_KEPT` | `4` | Idle staging blocks kept (default 8; frees ~256 MiB commit) |
+| `VICTORY_MAX_PRELUDES` | `64` | Idle preludes kept (default 64; each ~5 MB commit; 0 keeps none) |
 
 `VICTORY_STAGING_KEPT` is a new env var in `cool_fox/crates/victory-gpu/src/pool.rs`
 that overrides the hard-coded `STAGING_KEPT = 8` idle staging blocks (each 64 MiB of
 PC commit memory). The staging pool previously held up to 8 idle blocks = 512 MiB of
 commit even when unused, only releasing them once commit was already critical
 (< 1.5 GiB) — too late to prevent OOM. Cutting to 4 frees ~256 MiB earlier.
+
+`VICTORY_MAX_PRELUDES` is a new env var in `cool_fox/crates/victory-gpu/src/host.rs`
+that caps idle preludes kept (default 64). Each prelude is one command allocator plus
+one closed command list — about 5 MB of PC commit memory. Per-list preludes were made
+on demand and never recycled: every list that ever needed texture transitions owned one
+prelude for its whole life. With hundreds of lists that is thousands of allocator+list
+objects (~5 MB each) all committed at once — the prelude count climbed 126→876 (~4.4 GB
+of commit) and exhausted Windows commit headroom before OOM. Used preludes now go back
+to a pool (`PRELUDE_IDLE`) and are reused; `PreludeSlot::Drop` returns a prelude to the
+pool while idle count is under `VICTORY_MAX_PRELUDES`, above that it is released.
 
 You need: Windows 10/11 x64, your own copy of the title, a Direct3D 12 card
 with a recent driver, [Git for Windows](https://git-scm.com/download/win),
