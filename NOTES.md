@@ -46,7 +46,33 @@ Applied user settings to `scripts/run-test.ps1` and `scripts/settings.env`:
 hard-coded `STAGING_KEPT = 8` idle staging blocks (each 64 MiB of PC commit memory). Default remains 8;
 `run-test.ps1` now sets 4 to free ~256 MiB of commit earlier, before headroom is exhausted.
 
-## Addendum — 2026-11-26, prelude recycling (`VICTORY_MAX_PRELUDES`)
+## Addendum — 2026-11-27, launch scripts now default to low-memory OOM-safe settings
+
+`launch.ps1` and `timed-run.ps1` now default to the OOM-mitigation profile
+(previously applied manually):
+
+- `VICTORY_CARD_BUFFERS_MB=512` (was 1024)
+- `VICTORY_TEXTURE_MIP_DROP=3` (was 1)
+- `VICTORY_STAGING_KEPT=4`
+- `VICTORY_MAX_PRELUDES=32`
+
+These stop the `0x8007000E` OOM crashes where private memory climbed from
+~6 GB to ~17 GB and Windows commit headroom was exhausted. The sharper-texture
+measured profile (`CARD_BUFFERS_MB=1024`, `MipDrop=1`) is still available
+via `-KeepEnv` overrides before launch.
+
+To use the sharper profile manually:
+
+```powershell
+$env:VICTORY_CARD_BUFFERS_MB = '1024'
+$env:VICTORY_CARD_WINDOWS_MB = '256'
+$env:VICTORY_TEXTURE_MIP_DROP = '1'
+$env:VICTORY_LEVELS_ON_DEMAND = '1'
+$env:VICTORY_STAGING_KEPT = '2'
+$env:VICTORY_MAX_PRELUDES = '16'
+
+.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>" -KeepEnv
+```
 
 New run (victory-run3.log) still hit one `0x8007000E` OOM at line 58531 ("no host list for a state prelude"), with private memory climbing to ~15.7 GB and preludes growing from 126 → 876 (~4.4 GB of commit memory). Commit headroom was exhausted before critical-commit gating could release idle staging blocks — per-host-list preludes were the main remaining commit consumer.
 

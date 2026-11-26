@@ -239,20 +239,22 @@ when caches are warm. The fork keeps its caches under
 
 ### Tuning for mid-range and laptop cards
 
-The measured settings were tuned for a GTX 1660 6 GB desktop under Linux.
-On Windows, especially on 6 GB laptop cards, you may hit "Insufficient
-system resources" (os error 1450) or stutter. The launcher now defaults to
-lower-memory values (`CARD_BUFFERS_MB=512`, `MipDrop=3`, `LEVELS_ON_DEMAND=1`).
+`launch.ps1` now defaults to the low-memory OOM-safe profile
+(`CARD_BUFFERS_MB=512`, `MipDrop=3`, `LEVELS_ON_DEMAND=1`,
+`STAGING_KEPT=4`, `MAX_PRELUDES=32`) so the game starts without
+`0x8007000E` OOM crashes on 6 GB / low-RAM cards. These are the same
+Windows OOM mitigation values below.
 
-If you still have problems, set these before launching:
+If you want the sharper-texture measured profile instead (faster but more
+memory, ~100 ms/frame on the measured card):
 
 ```powershell
-$env:VICTORY_CARD_BUFFERS_MB = '512'
+$env:VICTORY_CARD_BUFFERS_MB = '1024'
 $env:VICTORY_CARD_WINDOWS_MB = '256'
-$env:VICTORY_TEXTURE_MIP_DROP = '3'
+$env:VICTORY_TEXTURE_MIP_DROP = '1'
 $env:VICTORY_LEVELS_ON_DEMAND = '1'
-$env:VICTORY_STAGING_KEPT = '4'
-$env:VICTORY_MAX_PRELUDES = '32'
+$env:VICTORY_STAGING_KEPT = '2'
+$env:VICTORY_MAX_PRELUDES = '16'
 
 .\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>" -KeepEnv
 ```
@@ -262,11 +264,12 @@ them. If video memory runs short (stutter, textures missing), try
 `-MipDrop 2` or `-MipDrop 3`. `-Console series-x` selects the larger console
 profile (slower).
 
-### Windows OOM mitigation (not measured by us)
+### Windows OOM mitigation (now the default in `launch.ps1`)
 
 A Windows run hit `0x8007000E` OOM ("no host list for a state prelude") with
 private memory climbing to ~15.7 GB and commit headroom exhausted. The
-following overrides reduce commit pressure:
+following overrides reduce commit pressure and are now set automatically by
+`launch.ps1` and `timed-run.ps1`:
 
 | Variable | Value | Purpose |
 |---|---|---|

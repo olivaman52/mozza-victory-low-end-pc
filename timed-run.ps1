@@ -17,10 +17,11 @@ if (-not (Test-Path $exe)) { throw "No $exe" }
 if (-not (Test-Path $game)) { throw "No $game" }
 "INIT" | Set-Content -Encoding ascii $status
 
-# Same settings as launch.ps1 (measured-best profile + corrected lighting).
-$env:VICTORY_CARD_BUFFERS_MB     = '1024'
+# Same settings as launch.ps1 (low-memory OOM-safe profile).
+# CARD_BUFFERS_MB=512 and TEXTURE_MIP_DROP=3 to stop 0x8007000E OOM crashes.
+$env:VICTORY_CARD_BUFFERS_MB     = '512'
 $env:VICTORY_CARD_WINDOWS_MB     = '256'
-$env:VICTORY_TEXTURE_MIP_DROP    = '1'
+$env:VICTORY_TEXTURE_MIP_DROP    = '3'
 $env:VICTORY_LEVELS_ON_DEMAND    = '1'
 $env:VICTORY_CARD_BUFFERS_MIN_KB = '64'
 $env:VICTORY_STAGING_KEPT        = '4'

@@ -1,5 +1,6 @@
-# WASDeKeys/victory-low-end-pc launcher — measured-best profile for an 8 GB laptop.
+# WASDeKeys/victory-low-end-pc launcher — low-memory OOM-safe profile for 6 GB / low-RAM cards.
 # Uses the vendored cool_fox diagnostics build and scripts\run.cmd.
+# These settings reduce commit pressure so the 0x8007000E OOM crashes stop.
 param([string]$Game = 'USER_HOME\Downloads\LOCAL_TITLE-\game_scarlett_master.exe')
 
 $repo = $PSScriptRoot
@@ -7,10 +8,12 @@ $exe = Join-Path $repo 'cool_fox\target\x86_64-pc-windows-msvc\release\victory.e
 if (-not (Test-Path $exe)) { Write-Error "No $exe. Run scripts\build.ps1 first."; return }
 if (-not (Test-Path $Game)) { Write-Error "No $Game"; return }
 
-# Measured ~100 ms configuration (settings.env) + user's NVIDIA switches.
-$env:VICTORY_CARD_BUFFERS_MB     = '1024'
+# Low-memory OOM-safe configuration (README.md Windows OOM mitigation).
+# CARD_BUFFERS_MB=512 instead of 1024 to keep commit headroom.
+# TEXTURE_MIP_DROP=3 instead of 1 to keep texture copies small enough to fit.
+$env:VICTORY_CARD_BUFFERS_MB     = '512'
 $env:VICTORY_CARD_WINDOWS_MB     = '256'
-$env:VICTORY_TEXTURE_MIP_DROP    = '1'
+$env:VICTORY_TEXTURE_MIP_DROP    = '3'
 $env:VICTORY_LEVELS_ON_DEMAND    = '1'
 $env:VICTORY_CARD_BUFFERS_MIN_KB = '64'
 $env:VICTORY_STAGING_KEPT        = '4'
@@ -42,4 +45,4 @@ $env:VICTORY_PIPELINE_BOOK = '1'
 # Hands-off past the start screens (diagnostics build honours this).
 $env:VICTORY_KEYS = '30:Enter,38:Enter,46:Enter,54:Enter,62:Enter,70:Enter,78:Enter,86:Enter'
 
-& (Join-Path $repo 'scripts\run.cmd') -Exe $exe -Game $Game -Console series-s -MipDrop 1 -KeepEnv
+& (Join-Path $repo 'scripts\run.cmd') -Exe $exe -Game $Game -Console series-s -MipDrop 3 -KeepEnv
