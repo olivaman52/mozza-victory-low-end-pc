@@ -30,7 +30,7 @@ try {
     Write-Host "  full log: $buildLog"
 
     # Run cargo, tee to console and capture everything to the build log.
-    $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '-p', 'victory', '--target', 'x86_64-pc-windows-msvc') + $args -Wait -PassThru -NoNewWindow -RedirectStandardOutput $buildLog -RedirectStandardError $buildLog
+    $proc = Start-Process -FilePath 'cargo' -ArgumentList (@('build', '-p', 'victory', '--target', 'x86_64-pc-windows-msvc') + $args) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $buildLog -RedirectStandardError $buildLog
     $code = $proc.ExitCode
 
     $end = Get-Date

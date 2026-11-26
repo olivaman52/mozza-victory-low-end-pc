@@ -150,6 +150,25 @@ static JOURNAL: RwLock<Journal> = RwLock::new(Journal {
     kept: false,
 });
 
+#[cfg(feature = "diagnostics")]
+fn journal() -> Held<std::sync::RwLockReadGuard<'static, Journal>> {
+    if let Ok(j) = JOURNAL.try_read() {
+        return Held::new(j, 1);
+    }
+    let g = waited(1, || JOURNAL.read().unwrap_or_else(|e| e.into_inner()));
+    Held::new(g, 1)
+}
+
+#[cfg(feature = "diagnostics")]
+fn journal_mut() -> Held<std::sync::RwLockWriteGuard<'static, Journal>> {
+    if let Ok(j) = JOURNAL.try_write() {
+        return Held::new(j, 2);
+    }
+    let g = waited(2, || JOURNAL.write().unwrap_or_else(|e| e.into_inner()));
+    Held::new(g, 2)
+}
+
+#[cfg(not(feature = "diagnostics"))]
 fn journal() -> std::sync::RwLockReadGuard<'static, Journal> {
     if let Ok(j) = JOURNAL.try_read() {
         return j;
@@ -157,6 +176,7 @@ fn journal() -> std::sync::RwLockReadGuard<'static, Journal> {
     waited(1, || JOURNAL.read().unwrap_or_else(|e| e.into_inner()))
 }
 
+#[cfg(not(feature = "diagnostics"))]
 fn journal_mut() -> std::sync::RwLockWriteGuard<'static, Journal> {
     if let Ok(j) = JOURNAL.try_write() {
         return j;
@@ -169,6 +189,10 @@ fn journal_mut() -> std::sync::RwLockWriteGuard<'static, Journal> {
 /// in it, and the guards (faults of the title's among them).
 #[cfg(feature = "diagnostics")]
 static WAITS: [[std::sync::atomic::AtomicU64; 2]; 4] = [const { [const { std::sync::atomic::AtomicU64::new(0) }; 2] }; 4];
+/// How long each lock category is held (micros), and how often: 0 ranges held,
+/// 1 journal read, 2 journal noted in, 3 guards.
+#[cfg(feature = "diagnostics")]
+static HELD: [[std::sync::atomic::AtomicU64; 2]; 4] = [const { [const { std::sync::atomic::AtomicU64::new(0) }; 2] }; 4];
 
 #[cfg(feature = "diagnostics")]
 fn waited<T>(what: usize, f: impl FnOnce() -> T) -> T {
@@ -180,19 +204,64 @@ fn waited<T>(what: usize, f: impl FnOnce() -> T) -> T {
     got
 }
 
+/// A lock guard that also records how long it was held (diagnostics only).
+/// Derefs through to the inner guard's target so callers see no difference.
+#[cfg(feature = "diagnostics")]
+pub(crate) struct Held<T> {
+    guard: T,
+    began: std::time::Instant,
+    what: usize,
+}
+
+#[cfg(feature = "diagnostics")]
+impl<T: std::ops::Deref> std::ops::Deref for Held<T> {
+    type Target = T::Target;
+    fn deref(&self) -> &T::Target { &*self.guard }
+}
+
+#[cfg(feature = "diagnostics")]
+impl<T: std::ops::DerefMut> std::ops::DerefMut for Held<T> {
+    fn deref_mut(&mut self) -> &mut T::Target { &mut *self.guard }
+}
+
+#[cfg(feature = "diagnostics")]
+impl<T> Held<T> {
+    fn new(guard: T, what: usize) -> Self {
+        Self { guard, began: std::time::Instant::now(), what }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+impl<T> Drop for Held<T> {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let us = self.began.elapsed().as_micros() as u64;
+        HELD[self.what][0].fetch_add(1, Relaxed);
+        HELD[self.what][1].fetch_add(us, Relaxed);
+    }
+}
+
 #[cfg(not(feature = "diagnostics"))]
 fn waited<T>(_: usize, f: impl FnOnce() -> T) -> T {
     f()
 }
 
-/// [`WAITS`], taken, for the log: per frame.
+/// [`WAITS`] and [`HELD`], taken, for the log: per frame.
 #[cfg(feature = "diagnostics")]
 pub(crate) fn lock_waits(frames: f64) -> String {
     let of = |what: usize| {
         let [n, ns] = [0, 1].map(|i| WAITS[what][i].swap(0, std::sync::atomic::Ordering::Relaxed));
         format!("{:.0} {:.2} ms", n as f64 / frames, ns as f64 / 1e6 / frames)
     };
-    format!("ranges held {}, journal read {}, journal noted in {}, guards {}", of(0), of(1), of(2), of(3))
+    let held_of = |what: usize| {
+        let [n, us] = [0, 1].map(|i| HELD[what][i].swap(0, std::sync::atomic::Ordering::Relaxed));
+        format!("held {}x {:.2} ms avg", n as f64 / frames, us as f64 / 1e3 / frames)
+    };
+    format!(
+        "ranges held {}, journal read {}, journal noted in {}, guards {} ; hold: journal read {}, journal noted in {}, guards {}",
+        of(0), of(1), of(2), of(3),
+        held_of(1), held_of(2), held_of(3)
+    )
 }
 
 /// The page ranges some thread is asking about: asking forgets what it
@@ -1206,12 +1275,19 @@ pub(crate) fn asks() -> [u64; 13] {
 }
 
 /// The guards' lock, the wait for it counted.
-fn guards_timed() -> std::sync::MutexGuard<'static, Guards> {
-    #[cfg(feature = "diagnostics")]
+#[cfg(feature = "diagnostics")]
+fn guards_timed() -> Held<std::sync::MutexGuard<'static, Guards>> {
     let started = std::time::Instant::now();
     let g = guards();
-    #[cfg(feature = "diagnostics")]
     tally(7, started.elapsed().as_nanos() as u64);
+    g
+}
+
+#[cfg(not(feature = "diagnostics"))]
+fn guards_timed() -> std::sync::MutexGuard<'static, Guards> {
+    let started = std::time::Instant::now();
+    let g = guards();
+    let _ = started;
     g
 }
 
@@ -1425,6 +1501,16 @@ static GUARDS: Mutex<Guards> = Mutex::new(Guards {
     opened: std::collections::HashMap::with_hasher(std::hash::BuildHasherDefault::new()),
 });
 
+#[cfg(feature = "diagnostics")]
+fn guards() -> Held<std::sync::MutexGuard<'static, Guards>> {
+    if let Ok(g) = GUARDS.try_lock() {
+        return Held::new(g, 3);
+    }
+    let g = waited(3, || GUARDS.lock().unwrap_or_else(|e| e.into_inner()));
+    Held::new(g, 3)
+}
+
+#[cfg(not(feature = "diagnostics"))]
 fn guards() -> std::sync::MutexGuard<'static, Guards> {
     if let Ok(g) = GUARDS.try_lock() {
         return g;
@@ -2526,13 +2612,39 @@ fn allocation_end(at: usize, inside: usize) -> usize {
 
 /// Tells what keeps track of what title memory shows; the guards, with no
 /// block of the range known unmapped.
-fn title_memory_changed(at: usize, len: usize) -> std::sync::MutexGuard<'static, Guards> {
+#[cfg(feature = "diagnostics")]
+fn title_memory_changed(at: usize, len: usize) -> Held<std::sync::MutexGuard<'static, Guards>> {
     // A placed texture there arrives, goes or changes with no descriptor
     // written.
     crate::descriptor::host::remapped(at, len);
     // The views the runtime told us of there are no longer what it shows.
     crate::inplace::views_gone(at, len);
     // And nothing stays in place over it.
+    crate::inplace::title_memory_freeing(at, len);
+    let mut g = guards();
+    let range = at / BLOCK..at.saturating_add(len).div_ceil(BLOCK);
+    let absent: Vec<usize> = g.absent.range(range.clone()).collect();
+    for block in absent {
+        g.absent.remove(block);
+        if g.held.remove(block) {
+            PUBLISHED.clear(block);
+        }
+    }
+    let foreign: Vec<usize> = g.foreign.range(range.clone()).copied().collect();
+    for block in foreign {
+        g.foreign.remove(&block);
+    }
+    let aliased: Vec<usize> = g.aliased.range(range).collect();
+    for block in aliased {
+        g.aliased.remove(block);
+    }
+    g
+}
+
+#[cfg(not(feature = "diagnostics"))]
+fn title_memory_changed(at: usize, len: usize) -> std::sync::MutexGuard<'static, Guards> {
+    crate::descriptor::host::remapped(at, len);
+    crate::inplace::views_gone(at, len);
     crate::inplace::title_memory_freeing(at, len);
     let mut g = guards();
     let range = at / BLOCK..at.saturating_add(len).div_ceil(BLOCK);

@@ -1,8 +1,8 @@
 # victory-gtx1660
 
 Patches, settings and launch scripts that took a console title from about
-360–410 ms per frame to about 100–106 ms per frame (about 10 fps) on a
-**GeForce GTX 1660 6 GB under Linux**, on top of the public fork
+360–410 ms per frame to about 100–106 ms per frame (about 10 fps) on our
+test machine under Linux, on top of the public fork
 [codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
 `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
 
@@ -35,7 +35,7 @@ tool). Details per run in [RESULTS.md](RESULTS.md).
 | + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=256`, `TEXTURE_MIP_DROP=1` (**current settings**: sharper textures, same speed) | 98–112 | 9–10 | 5 (4.5–6 min of scene each; medians 98, 112.2, 101.9, 106, 107.7), all clean |
 | the same with `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` (first settings found) | 100–106 | 9.4–9.9 | 5 (4–8 min of scene each; medians 102.5, 100.6, 104.3, 106.4, 101.4), all clean |
 
-Machine: GTX 1660 6 GB, Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
+Machine: our test machine — Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
 LTS), NVIDIA driver 620.73.04 (open kernel modules rebuilt with NVIDIA's
 [PR #1542](https://github.com/NVIDIA/open-gpu-kernel-modules/pull/1542) against
 random soft lockups, issue #1540), Wine from GE-Proton11-6 with vkd3d-proton
@@ -43,13 +43,12 @@ from Proton Experimental, Microsoft's `d3dcompiler_47.dll` in the prefix.
 
 The last step moves memory, it does not skip work: copies of the title's
 buffers and memory windows are kept in the card's memory instead of the PC's,
-and texture copies start one mip level further down so that this fits in 6 GB.
+and texture copies start one mip level further down so that this fits in the
+card's memory.
 
 ## Known defects (in this configuration)
 
-- **Cards with less than 6 GB are below what was measured.** The memory
-  settings reserve about 1.8 GB of video memory for copies of the title's
-  buffers on top of textures; on 6 GB that just fits (one texture level
+- **Cards with less than the measured card's memory are below what was measured.** The memory settings reserve about 1.8 GB of video memory for copies of the title's buffers on top of textures; on the measured card that just fits (one texture level
   sharper already costs 15 %). On a 4 GB card they overflow: one user reports
   about 3 fps and a black picture. Untested starting point for 4 GB:
   `VICTORY_TEXTURE_MIP_DROP=3`, `VICTORY_CARD_BUFFERS_MB=1024`,
@@ -76,7 +75,7 @@ and texture copies start one mip level further down so that this fits in 6 GB.
   limits, the integer buffer view path (`patches/optional/0007`).
 - **Ray-traced lighting is not computed**: the fork's ambient-light stand-in
   (`VICTORY_AMBIENT`) replaces it, so lighting and shadows are approximate.
-- **Textures start one mip level down** (`VICTORY_TEXTURE_MIP_DROP=1`; with 3 they are visibly softer; 0 does not fit in 6 GB next to the buffer copies) — compare with drop 2
+- **Textures start one mip level down** (`VICTORY_TEXTURE_MIP_DROP=1`; with 3 they are visibly softer; 0 does not fit next to the buffer copies on the measured card) — compare with drop 2
   (which gives the 271–291 ms row).
 - **The start screen was not passed with the monitors awake** on this setup
   (unexplained). The runs were made with the screens put to sleep with DPMS
@@ -159,13 +158,13 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 With that said: cool_fox itself is
 developed and played on Windows, and the patches and settings are the same
 there, so this should work, but the figures above are Linux figures. The
-texture and memory settings matter most on cards with 6–8 GB.
+texture and memory settings matter most on memory-constrained cards.
 
 ### Windows OOM mitigation (user-configured, not measured by us)
 
-A Windows run with a GTX 1660 6 GB hit `0x8007000E` OOM ("no host list for a state
-prelude") with private memory climbing to ~15.7 GB and commit headroom exhausted.
-The following overrides were applied to `scripts/run-test.ps1` and
+A Windows run hit `0x8007000E` OOM ("no host list for a state prelude") with
+private memory climbing to ~15.7 GB and commit headroom exhausted. The
+following overrides were applied to `scripts/run-test.ps1` and
 `scripts/settings.env` to reduce commit pressure:
 
 | Variable | Value | Purpose |
@@ -222,7 +221,7 @@ and a Windows SDK.
    # or from Linux/WSL with the vendored tree as SRC_DIR:
    # SRC_DIR=$PWD/cool_fox ./scripts/build.sh
    ```
-   The result is `cool_fox\target\release\victory.exe`.
+   The result is `cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe`.
 3. Run with the measured settings (`run.cmd` starts `run.ps1` without
    touching PowerShell's script policy):
    ```powershell
@@ -261,7 +260,7 @@ build): the line "host copies in the card's memory: N copies X MB ..." should
 read about 1,000 MB or more once the scene runs. Copies go to the card only
 while a fifth of the card's memory budget is free; on Windows that budget is
 what the system grants this process (other programs and the desktop take their
-share), so on a 6 GB card fewer copies may fit than under Linux. If X stays
+share), so fewer copies may fit than under Linux. If X stays
 near 500 MB, close other programs that use the GPU or try `-MipDrop 3`.
 If something goes wrong, compare with the fork's own launcher
 (`Play-VIctory.cmd` in cool_fox) to tell a problem of these patches from one
