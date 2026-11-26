@@ -161,7 +161,7 @@ and a Windows SDK.
 1. Get this repository — the vendored `cool_fox/` tree already carries patches
    0001–0002, so nothing needs cloning or `git am`-ing besides this repository:
    ```powershell
-   git clone https://github.com/Impre-visible/victory-gtx1660
+   git clone https://github.com/WASDeKeys/victory-gtx1660
    cd victory-gtx1660
    ```
    Optional patches (`patches/optional/`, diagnostics and experiments) can be
