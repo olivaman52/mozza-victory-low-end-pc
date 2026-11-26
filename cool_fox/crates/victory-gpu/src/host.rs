@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{E_OUTOFMEMORY, HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_12_0;
 use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
@@ -6393,10 +6393,23 @@ impl HostList {
             }
         }
         // SAFETY: our list.
-        if let Err(e) = unsafe { self.list.Close() } {
-            fail(format_args!(
+        match unsafe { self.list.Close() } {
+            Ok(()) => {}
+            Err(e) if e.code() == windows::Win32::Foundation::E_OUTOFMEMORY => {
+                // Out of memory while closing: free idle preludes and host
+                // lists (they hold ~5+ MB each) and retry once. The first
+                // close may have raced with an allocation the pressure
+                // release now frees.
+                sweep();
+                if let Err(e) = unsafe { self.list.Close() } {
+                    fail(format_args!(
+                        "a host command list did not close ({e}): a command recorded into it was invalid"
+                    ));
+                }
+            }
+            Err(e) => fail(format_args!(
                 "a host command list did not close ({e}): a command recorded into it was invalid"
-            ));
+            )),
         }
     }
 

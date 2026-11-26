@@ -97,9 +97,9 @@ pub(crate) fn limited_host_ram() -> bool {
 
 fn next_pressure(was: bool, physical: u64, commit: u64) -> bool {
     if was {
-        physical < 5 * GIB || commit < 6 * GIB
+        physical < 6 * GIB || commit < 6 * GIB
     } else {
-        physical <= 3 * GIB || commit <= 4 * GIB
+        physical <= 4 * GIB || commit <= 4 * GIB
     }
 }
 
