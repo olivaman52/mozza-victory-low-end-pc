@@ -6,6 +6,16 @@ test machine under Linux, on top of the public fork
 [codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
 `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
 
+> **Notice (2026-11-26, evening):** the repository `codec-d/cool_fox` these
+> patches apply to no longer answers on GitHub (404). The steps below need a
+> copy of it at commit `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`. If you already
+> cloned it, they still work. We do not redistribute cool_fox: it is not our
+> code, and its history carries identifiers of the title that we do not
+> publish. Its base, [avatarmanz/VIctory-7900XTX](https://github.com/avatarmanz/VIctory-7900XTX),
+> is still online, but our patches were written against cool_fox and have not
+> been tried on it. This page will be updated if cool_fox returns or once the
+> patches are ported to a base that is available.
+
 Jump to: [Results](#results) · [Linux](#how-to-reproduce-on-linux) · [Windows](#how-to-reproduce-on-windows) · [Known defects](#known-defects-in-this-configuration)
 
 ## What this is and is not
