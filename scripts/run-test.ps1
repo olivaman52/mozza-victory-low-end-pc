@@ -33,13 +33,18 @@ if (-not (Test-Path $Game)) {
 
 # Measured GTX 1660 settings (scripts/settings.env)
 $settings = [ordered]@{
-    # Reduced memory footprint (avoid 0x8007000E commit-headroom OOM):
-    # 512/256 instead of measured 1024/768, at the cost of frame time.
-    VICTORY_CARD_BUFFERS_MB     = '512'
+    # Measured GTX 1660 settings (user-provided overrides):
+    VICTORY_CARD_BUFFERS_MB     = '1024'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
-    VICTORY_LEVELS_ON_DEMAND    = '0'
+    VICTORY_LEVELS_ON_DEMAND    = '1'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'
+    VICTORY_RAW_VIEWS           = '0'
+    VICTORY_GROUP_SYNC          = '2'
+    VICTORY_WAVE_LOCAL          = 'idiom'
+    VICTORY_WAVE_WIDE           = ''
+    VICTORY_PIPELINE_BOOK       = '1'
+    VICTORY_STAGING_KEPT        = '4'
     VICTORY_AMBIENT             = '0.8'
     VICTORY_AMBIENT_AIR         = '1.5'
     VICTORY_TEXTURE_NO_WAIT     = '1'

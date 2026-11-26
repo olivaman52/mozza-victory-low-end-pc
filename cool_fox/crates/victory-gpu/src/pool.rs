@@ -33,8 +33,14 @@ const SPARE: usize = 2;
 /// The same while the card has room ([`room`]): 4 GiB of them.
 const SPARE_KEPT: usize = 64;
 /// The same of blocks of staging buffers, which are the PC's memory: run
-/// crash-1 held 5.2 GB of them.
-const STAGING_KEPT: usize = 8;
+/// crash-1 held 5.2 GB of them. Override with `VICTORY_STAGING_KEPT`.
+const STAGING_KEPT: usize = staging_kept();
+fn staging_kept() -> usize {
+    std::env::var("VICTORY_STAGING_KEPT")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(8)
+}
 /// How many are kept now.
 static SPARES: AtomicUsize = AtomicUsize::new(SPARE);
 
