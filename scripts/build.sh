@@ -4,12 +4,14 @@
 # usage: build.sh [cargo build args...]   (default: --release --locked --features diagnostics)
 #
 # Environment:
-#   SRC_DIR   the patched cool_fox checkout (default: current directory)
+#   SRC_DIR   the cool_fox checkout to build (default: the vendored cool_fox/
+#             tree next to this repository)
 #   XWIN_DIR  an MSVC CRT + Windows SDK splat made with `xwin splat --use-winsysroot-style`
 # Needs: the Rust toolchain pinned by the checkout with the x86_64-pc-windows-msvc target,
 #        clang (clang-cl), lld (lld-link) and llvm (llvm-lib).
 set -eu
-cd "${SRC_DIR:-.}"
+here=$(cd "$(dirname "$0")" && pwd)
+cd "${SRC_DIR:-$here/../cool_fox}"
 [ -f rust-toolchain.toml ] || { echo "build.sh: run it in the cool_fox checkout or set SRC_DIR" >&2; exit 2; }
 : "${XWIN_DIR:?set XWIN_DIR to a winsysroot-style xwin splat}"
 

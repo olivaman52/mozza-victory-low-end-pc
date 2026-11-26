@@ -10,9 +10,11 @@ Jump to: [Results](#results) · [Linux](#how-to-reproduce-on-linux) · [Windows]
 
 ## What this is and is not
 
-- It is a small set of patches (`patches/`), a settings file and launch scripts
-  for Linux and Windows (`scripts/`), and the measurements behind them (`RESULTS.md`).
-- It is **not** the fork itself: clone cool_fox yourself and apply the patches.
+- It is the cool_fox fork source (`cool_fox/`), already carrying patches
+  0001–0002, plus the remaining patches (`patches/`), a settings file and
+  launch scripts for Linux and Windows (`scripts/`), and the measurements
+  behind them (`RESULTS.md`). Clone this repository alone and nothing else
+  needs downloading — not the fork, not any patch — except the game title.
 - It contains **no game files, code, assets, captures or logs**. You need your
   own copy of the title.
 - It is not affiliated with or endorsed by the title's developer or publisher,
@@ -92,37 +94,32 @@ a Proton build, `bubblewrap`, systemd (for the memory cap), and to build:
 the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 `clang`, `lld`, `llvm` and [xwin](https://github.com/Jake-Shadle/xwin).
 
-1. Get the fork at the pinned commit:
+1. Build (cross-build from Linux; `xwin splat --use-winsysroot-style` once
+   for the Windows SDK, accepting its licence). The vendored `cool_fox/`
+   tree already carries patches 0001–0002, so nothing needs cloning or
+   `git am`-ing — just this repository:
    ```sh
-   git clone https://github.com/codec-d/cool_fox
-   cd cool_fox
-   git checkout -b gtx1660 f4b48ad766ddbec1a1867022cd42f7645b0dd55e
+   XWIN_DIR=/path/to/xwin-splat scripts/build.sh
    ```
-2. Apply the patches (`git am` needs a git identity configured):
+   The result is `cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe`.
+   Optional patches (`patches/optional/`, diagnostics and experiments) can be
+   applied on top with `git apply` inside `cool_fox/` if you want them:
    ```sh
-   git am /path/to/victory-gtx1660/patches/*.patch
-   # optional, diagnostics and experiments:
-   git am /path/to/victory-gtx1660/patches/optional/*.patch
+   cd cool_fox && git apply ../patches/optional/0003-*.patch && cd ..
    ```
-3. Build (cross-build from Linux; `xwin splat --use-winsysroot-style` once
-   for the Windows SDK, accepting its licence):
-   ```sh
-   XWIN_DIR=/path/to/xwin-splat /path/to/victory-gtx1660/scripts/build.sh
-   ```
-   The result is `target/x86_64-pc-windows-msvc/release/victory.exe`.
-4. Prepare a Wine prefix: copy `d3d12.dll` and `d3d12core.dll` from
+2. Prepare a Wine prefix: copy `d3d12.dll` and `d3d12core.dll` from
    vkd3d-proton (we used the one shipped with Proton Experimental) and
    `dxgi.dll` from DXVK into its `system32`, and install Microsoft's
    `d3dcompiler_47.dll` (`winetricks d3dcompiler_47`); without it the
    fork's indirect-argument clamp shader does not compile under Wine and
    indirect draws are dropped.
-5. Run with the settings of `scripts/settings.env`:
+3. Run with the settings of `scripts/settings.env`:
    ```sh
-   VICTORY_EXE=/path/to/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe \
+   VICTORY_EXE=$PWD/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe \
    GAME_EXE=/path/to/your/own/copy/<its executable> \
    PROTON_DIR=/path/to/GE-Proton11-6/files \
    WINEPREFIX=/path/to/prefix WORK_DIR=/path/to/workdir DPMS=1 \
-   /path/to/victory-gtx1660/scripts/run.sh 600
+   scripts/run.sh 600
    ```
    The run is sandboxed (no network, read-only system except `WORK_DIR` and
    the prefix). The log goes to `WORK_DIR/logs/`; at the end the script prints
@@ -161,31 +158,30 @@ with a recent driver, [Git for Windows](https://git-scm.com/download/win),
 itself), and the Visual Studio Build Tools with "Desktop development with C++"
 and a Windows SDK.
 
-1. Get this repository and the fork at the pinned commit (PowerShell):
+1. Get this repository — the vendored `cool_fox/` tree already carries patches
+   0001–0002, so nothing needs cloning or `git am`-ing besides this repository:
    ```powershell
    git clone https://github.com/Impre-visible/victory-gtx1660
-   git clone https://github.com/codec-d/cool_fox
-   cd cool_fox
-   git checkout -b gtx1660 f4b48ad766ddbec1a1867022cd42f7645b0dd55e
+   cd victory-gtx1660
    ```
-2. Apply the two patches. `--keep-cr` matters if your Git converts line
-   endings; if `git am` refuses, run `git am --abort`, then
-   `git config core.autocrlf false`, `git reset --hard` and try again:
+   Optional patches (`patches/optional/`, diagnostics and experiments) can be
+   applied on top if you want them:
    ```powershell
-   git am --keep-cr ..\victory-gtx1660\patches\0001-*.patch ..\victory-gtx1660\patches\0002-*.patch
+   cd cool_fox; git apply ..\patches\optional\0003-*.patch; cd ..
    ```
-   (`git am` needs `git config user.name` and `user.email` to be set.)
-3. Build (10–20 minutes the first time), with the diagnostics feature as in
+2. Build (10–20 minutes the first time), with the diagnostics feature as in
    our runs (it prints the frame statistics line used to measure; without it
    there is no such line in the log):
    ```powershell
-   cargo build --release --locked -p victory --features diagnostics
+   .\scripts\build.ps1
+   # or from Linux/WSL with the vendored tree as SRC_DIR:
+   # SRC_DIR=$PWD/cool_fox ./scripts/build.sh
    ```
-   The result is `target\release\victory.exe`.
-4. Run with the measured settings (`run.cmd` starts `run.ps1` without
+   The result is `cool_fox\target\release\victory.exe`.
+3. Run with the measured settings (`run.cmd` starts `run.ps1` without
    touching PowerShell's script policy):
    ```powershell
-   ..\victory-gtx1660\scripts\run.cmd -Exe .\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
+   .\scripts\run.cmd -Exe .\cool_fox\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
    ```
    The script first clears every `VICTORY_*` variable left in your
    environment (other forks' guides set some system-wide), then prints
@@ -195,7 +191,7 @@ and a Windows SDK.
    comparing frame rates.
    With 8 GB of video memory or more, add `-MipDrop 2` for sharper textures;
    `-Console series-x` selects the larger console profile (slower).
-5. The first run translates every shader and compiles pipelines: expect
+4. The first run translates every shader and compiles pipelines: expect
    several slow minutes and stutter; judge the speed on the second run. The
    fork keeps its caches under `%LOCALAPPDATA%\victory\cache` unless
    `VICTORY_CACHE_DIR` is set (see `victory.example.toml` in the fork).
