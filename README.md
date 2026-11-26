@@ -161,6 +161,31 @@ developed and played on Windows, and the patches and settings are the same
 there, so this should work, but the figures above are Linux figures. The
 texture and memory settings matter most on cards with 6–8 GB.
 
+### Windows OOM mitigation (user-configured, not measured by us)
+
+A Windows run with a GTX 1660 6 GB hit `0x8007000E` OOM ("no host list for a state
+prelude") with private memory climbing to ~15.7 GB and commit headroom exhausted.
+The following overrides were applied to `scripts/run-test.ps1` and
+`scripts/settings.env` to reduce commit pressure:
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `VICTORY_CARD_BUFFERS_MB` | `1024` | Card-side buffer copy cap (measured value) |
+| `VICTORY_CARD_BUFFERS_MIN_KB` | `64` | Pool every title buffer, no minimum skip |
+| `VICTORY_LEVELS_ON_DEMAND` | `1` | Textures made level by level on demand |
+| `VICTORY_RAW_VIEWS` | `0` | Raw views off |
+| `VICTORY_GROUP_SYNC` | `2` | Group sync level |
+| `VICTORY_WAVE_LOCAL` | `idiom` | Wave local mode |
+| `VICTORY_WAVE_WIDE` | `` (empty) | Wave wide mode off |
+| `VICTORY_PIPELINE_BOOK` | `1` | Pipeline book enabled |
+| `VICTORY_STAGING_KEPT` | `4` | Idle staging blocks kept (default 8; frees ~256 MiB commit) |
+
+`VICTORY_STAGING_KEPT` is a new env var in `cool_fox/crates/victory-gpu/src/pool.rs`
+that overrides the hard-coded `STAGING_KEPT = 8` idle staging blocks (each 64 MiB of
+PC commit memory). The staging pool previously held up to 8 idle blocks = 512 MiB of
+commit even when unused, only releasing them once commit was already critical
+(< 1.5 GiB) — too late to prevent OOM. Cutting to 4 frees ~256 MiB earlier.
+
 You need: Windows 10/11 x64, your own copy of the title, a Direct3D 12 card
 with a recent driver, [Git for Windows](https://git-scm.com/download/win),
 [Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs

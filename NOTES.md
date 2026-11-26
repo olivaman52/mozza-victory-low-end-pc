@@ -32,3 +32,16 @@ Contributing: `cool_fox/crates/victory-gpu/src/host.rs:374-401` `ram_idle_ms()` 
 - Added `COMMIT_SCARCE_BYTES` (2 GiB): when available commit is under 2 GiB, RAM caches (staging buffers, loose shadows, mapped pipeline library) use their shortest idle timeout (2000 ms) even if physical RAM is plentiful, so idle system memory is returned before commit is exhausted.
 
 Files: `cool_fox/crates/victory-gpu/src/pool.rs` (primary), `cool_fox/crates/victory-gpu/src/host.rs` (ram_idle_ms).
+
+## Addendum — 2026-11-26, user-provided GTX 1660 settings + VICTORY_STAGING_KEPT
+
+New run (victory-run3.log) still hit one `0x8007000E` OOM at line 58531 ("no host list for a state prelude"), with private memory climbing to ~15.7 GB and preludes growing from 126 → 876. Commit headroom (15,160 MiB available at start) was exhausted before critical-commit gating could release idle staging blocks.
+
+Applied user settings to `scripts/run-test.ps1` and `scripts/settings.env`:
+- `VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_LEVELS_ON_DEMAND=1`, `VICTORY_RAW_VIEWS=0`,
+  `VICTORY_GROUP_SYNC=2`, `VICTORY_WAVE_LOCAL=idiom`, `VICTORY_WAVE_WIDE=`,
+  `VICTORY_PIPELINE_BOOK=1`, `VICTORY_CARD_BUFFERS_MIN_KB=64`, `VICTORY_STAGING_KEPT=4`.
+
+`cool_fox/crates/victory-gpu/src/pool.rs`: added `VICTORY_STAGING_KEPT` env var to override the
+hard-coded `STAGING_KEPT = 8` idle staging blocks (each 64 MiB of PC commit memory). Default remains 8;
+`run-test.ps1` now sets 4 to free ~256 MiB of commit earlier, before headroom is exhausted.
