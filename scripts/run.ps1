@@ -15,25 +15,18 @@ param(
     [switch]$KeepEnv
 )
 $settings = [ordered]@{
-    # Memory placement: mid-range defaults matching scripts/settings.env
-    # (the measured ~100 ms/frame configuration, clean on 6 GB). If you hit
-    # "Insufficient system resources" (os error 1450), drop CARD_BUFFERS_MB
-    # to 512 and/or raise -MipDrop.
-    VICTORY_CARD_BUFFERS_MB     = '1024'
+    # Memory placement: mid-range defaults. The measured GTX 1660 value of
+    # CARD_BUFFERS_MB=1024 can exhaust commit on 6 GB laptop cards; 512 leaves
+    # more headroom. MipDrop=3 keeps textures soft enough to fit.
+    VICTORY_CARD_BUFFERS_MB     = '512'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '1'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'
-    # User-provided GTX 1660 overrides:
-    VICTORY_RAW_VIEWS           = '0'
-    VICTORY_GROUP_SYNC          = '2'
-    VICTORY_WAVE_LOCAL          = 'idiom'
-    VICTORY_WAVE_WIDE           = ''
-    VICTORY_PIPELINE_BOOK       = '1'
     # Commit-pressure guards for Windows: keep idle staging blocks and preludes low
     # so commit headroom isn't exhausted before the scene runs.
-    VICTORY_STAGING_KEPT        = '4'
-    VICTORY_MAX_PRELUDES        = '32'
+    VICTORY_STAGING_KEPT        = '2'
+    VICTORY_MAX_PRELUDES        = '16'
     # The fork's stand-in for ray-traced light (a skip: lighting is approximate).
     VICTORY_AMBIENT             = '0.8'
     VICTORY_AMBIENT_AIR         = '1.5'
