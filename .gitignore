@@ -28,6 +28,7 @@ cool_fox/victory.toml
 *.obj
 *.exp
 *.ilk
+*.log
 
 # Console packages and containers
 *.xvd

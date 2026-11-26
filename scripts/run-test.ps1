@@ -33,8 +33,10 @@ if (-not (Test-Path $Game)) {
 
 # Measured GTX 1660 settings (scripts/settings.env)
 $settings = [ordered]@{
-    VICTORY_CARD_BUFFERS_MB     = '1024'
-    VICTORY_CARD_WINDOWS_MB     = '768'
+    # Reduced memory footprint (avoid 0x8007000E commit-headroom OOM):
+    # 512/256 instead of measured 1024/768, at the cost of frame time.
+    VICTORY_CARD_BUFFERS_MB     = '512'
+    VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '0'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'
@@ -70,12 +72,28 @@ $Game = (Resolve-Path $Game).Path
 Push-Location (Split-Path $Exe)
 try {
     Write-Host "running: & $Exe run $Game --execute --console $Console"
-    & $Exe run $Game --execute --console $Console
-    $code = $LASTEXITCODE
+    Write-Host "run log: $Log"
+    # Every run captures stdout+stderr to the log file so errors are never lost;
+    # the tail is shown so you can see how the run ended.
+    # $ErrorActionPreference = 'Continue' only here: the game is a native command
+    # that writes progress to stderr and may exit non-zero; we still want
+    # $LASTEXITCODE, not a terminating PowerShell error.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Exe run $Game --execute --console $Console > "$Log" 2>&1
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+    Write-Host "exit code: $code"
+    Write-Host "=== run log tail ==="
+    Get-Content -Path $Log -Tail 25 | ForEach-Object { Write-Host $_ }
+    # Keep a stable "latest" copy so the (filtered) log is always easy to find.
+    try { Copy-Item -Path $Log -Destination (Join-Path $root 'victory-run-latest.log') -Force } catch {}
 } finally {
     Pop-Location
 }
-Write-Host "exit code: $code"
 
 if (-not $NoAnalyze) {
     Write-Host ""
