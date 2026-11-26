@@ -241,23 +241,7 @@ settings are applied. Starting `victory.exe` yourself, or cool_fox's own
 `Play-VIctory.cmd`, runs without them — that is the 271–291 ms row, not the
 100 ms one.
 
-Clear any leftover `VICTORY_*` variables first, then set the measured
-settings (no framerate loss on this configuration) and launch:
-
 ```powershell
-# Clear leftover VICTORY_* variables so old settings don't linger
-Get-ChildItem Env: | Where-Object { $_.Name -like 'VICTORY_*' } | ForEach-Object { Remove-Item Env:\$($_.Name) }
-
-# Measured settings — no framerate loss
-$env:VICTORY_CARD_BUFFERS_MIN_KB = '64'
-$env:VICTORY_CARD_BUFFERS_MB = '1024'
-$env:VICTORY_LEVELS_ON_DEMAND = '1'
-$env:VICTORY_RAW_VIEWS = '0'
-$env:VICTORY_GROUP_SYNC = '2'
-$env:VICTORY_WAVE_LOCAL = 'idiom'
-$env:VICTORY_WAVE_WIDE = ''
-$env:VICTORY_PIPELINE_BOOK = '1'
-
 # Run victory.exe with your own copy of the game executable
 .\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
 ```
@@ -265,13 +249,9 @@ $env:VICTORY_PIPELINE_BOOK = '1'
 Replace `D:\path\to\your\copy\<its executable>` with the real path to your
 game's `.exe`. Keep the quotes if the path has spaces.
 
-The script clears leftover `VICTORY_*` variables, applies the settings above,
-and prints `victory-gtx1660: settings in effect:` with every value. Check this
+The script clears leftover `VICTORY_*` variables, applies the settings, and
+prints `victory-gtx1660: settings in effect:` with every value. Check this
 list before comparing frame rates.
-
-Do **not** use `-KeepEnv` here — the explicit `$env:` assignments above already
-set the values you want, and `-KeepEnv` is only for overriding the defaults set
-inside `run.cmd`/`run.ps1` after they've been applied.
 
 ### Step 4 — Expect the first run to be slow
 
