@@ -139,7 +139,7 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 **Not tested by us**: all our runs were under Linux.
 
 > **The patches alone do not give the ~100 ms figure.** Most of the gain comes
-> from three settings (`VICTORY_CARD_BUFFERS_MB=1024` above all, with `VICTORY_CARD_WINDOWS_MB=256`,
+> from three settings (`VICTORY_CARD_BUFFERS_MB` above all, with `VICTORY_CARD_WINDOWS_MB=256`,
 > `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`). Start the
 > title **only with `scripts\run.cmd` (or `run.ps1`)**. Starting `victory.exe`
 > yourself, or cool_fox's own `Play-VIctory.cmd`, runs without them
@@ -155,21 +155,122 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 > If you have such a card on Windows, expect this; on newer cards it is not
 > reported.
 
-With that said: cool_fox itself is
-developed and played on Windows, and the patches and settings are the same
-there, so this should work, but the figures above are Linux figures. The
-texture and memory settings matter most on memory-constrained cards.
+With that said: cool_fox itself is developed and played on Windows, and the
+patches and settings are the same there, so this should work, but the figures
+above are Linux figures. The texture and memory settings matter most on
+memory-constrained cards.
 
-### Windows OOM mitigation (user-configured, not measured by us)
+### What you need
+
+- Windows 10/11 x64
+- Your own copy of the title (this repo contains **no game files**)
+- A Direct3D 12 card with a recent driver
+- [Git for Windows](https://git-scm.com/download/win)
+- [Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs itself)
+- Visual Studio Build Tools with **"Desktop development with C++"** and a Windows SDK
+
+### Step 1 — Clone the repository
+
+```powershell
+git clone https://github.com/WASDeKeys/victory-gtx1660
+cd victory-gtx1660
+```
+
+The vendored `cool_fox/` tree already carries patches 0001–0002, so nothing
+needs cloning or `git am`-ing besides this repository.
+
+Optional patches (`patches/optional/`, diagnostics and experiments) can be
+applied on top if you want them:
+
+```powershell
+cd cool_fox; git apply ..\patches\optional\0003-*.patch; cd ..
+```
+
+### Step 2 — Build victory.exe
+
+From inside the repo folder:
+
+```powershell
+.\scripts\build.ps1
+```
+
+This runs `cargo build` inside `cool_fox/` with the diagnostics feature (it
+prints the frame statistics line used to measure; without it there is no such
+line in the log).
+
+First build: **10–20 minutes**. Later builds are much faster.
+
+When it finishes, the result is:
+
+```
+cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
+```
+
+Verify it exists:
+
+```powershell
+ls cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
+```
+
+### Step 3 — Run the game
+
+Launch **only** through `scripts\run.cmd` (or `run.ps1`) so the memory
+settings are applied. Starting `victory.exe` yourself, or cool_fox's own
+`Play-VIctory.cmd`, runs without them.
+
+```powershell
+.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
+```
+
+Replace `D:\path\to\your\copy\<its executable>` with the real path to your
+game's `.exe`. Keep the quotes if the path has spaces.
+
+The script clears leftover `VICTORY_*` variables, applies the settings, and
+prints `victory-gtx1660: settings in effect:` with every value. Check this
+list before comparing frame rates.
+
+### Step 4 — Expect the first run to be slow
+
+The first run translates every shader and compiles pipelines: expect several
+slow minutes and stutter. **Judge the speed on the second run or later**,
+when caches are warm. The fork keeps its caches under
+`%LOCALAPPDATA%\victory\cache` unless `VICTORY_CACHE_DIR` is set (see
+`victory.example.toml` in the fork).
+
+### Tuning for mid-range and laptop cards
+
+The measured settings were tuned for a GTX 1660 6 GB desktop under Linux.
+On Windows, especially on 6 GB laptop cards, you may hit "Insufficient
+system resources" (os error 1450) or stutter. The launcher now defaults to
+lower-memory values (`CARD_BUFFERS_MB=512`, `MipDrop=3`, `LEVELS_ON_DEMAND=1`).
+
+If you still have problems, set these before launching:
+
+```powershell
+$env:VICTORY_CARD_BUFFERS_MB = '512'
+$env:VICTORY_CARD_WINDOWS_MB = '256'
+$env:VICTORY_TEXTURE_MIP_DROP = '3'
+$env:VICTORY_LEVELS_ON_DEMAND = '1'
+$env:VICTORY_STAGING_KEPT = '4'
+$env:VICTORY_MAX_PRELUDES = '32'
+
+.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>" -KeepEnv
+```
+
+`-KeepEnv` keeps the variables you set instead of letting the script clear
+them. If video memory runs short (stutter, textures missing), try
+`-MipDrop 2` or `-MipDrop 3`. `-Console series-x` selects the larger console
+profile (slower).
+
+### Windows OOM mitigation (not measured by us)
 
 A Windows run hit `0x8007000E` OOM ("no host list for a state prelude") with
 private memory climbing to ~15.7 GB and commit headroom exhausted. The
-following overrides were applied to `scripts/run-test.ps1` and
-`scripts/settings.env` to reduce commit pressure:
+following overrides reduce commit pressure:
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `VICTORY_CARD_BUFFERS_MB` | `1024` | Card-side buffer copy cap (measured value) |
+| `VICTORY_CARD_BUFFERS_MB` | `512` | Card-side buffer copy cap (lowered from measured 1024 for mid-range cards) |
 | `VICTORY_CARD_BUFFERS_MIN_KB` | `64` | Pool every title buffer, no minimum skip |
 | `VICTORY_LEVELS_ON_DEMAND` | `1` | Textures made level by level on demand |
 | `VICTORY_RAW_VIEWS` | `0` | Raw views off |
@@ -178,90 +279,41 @@ following overrides were applied to `scripts/run-test.ps1` and
 | `VICTORY_WAVE_WIDE` | `` (empty) | Wave wide mode off |
 | `VICTORY_PIPELINE_BOOK` | `1` | Pipeline book enabled |
 | `VICTORY_STAGING_KEPT` | `4` | Idle staging blocks kept (default 8; frees ~256 MiB commit) |
-| `VICTORY_MAX_PRELUDES` | `64` | Idle preludes kept (default 64; each ~5 MB commit; 0 keeps none) |
+| `VICTORY_MAX_PRELUDES` | `32` | Idle preludes kept (default 64; each ~5 MB commit; 0 keeps none) |
 
-`VICTORY_STAGING_KEPT` is a new env var in `cool_fox/crates/victory-gpu/src/pool.rs`
-that overrides the hard-coded `STAGING_KEPT = 8` idle staging blocks (each 64 MiB of
-PC commit memory). The staging pool previously held up to 8 idle blocks = 512 MiB of
-commit even when unused, only releasing them once commit was already critical
-(< 1.5 GiB) — too late to prevent OOM. Cutting to 4 frees ~256 MiB earlier.
+`VICTORY_STAGING_KEPT` overrides the hard-coded `STAGING_KEPT = 8` idle
+staging blocks (each 64 MiB of PC commit memory). Cutting to 4 frees ~256 MiB
+earlier.
 
-`VICTORY_MAX_PRELUDES` is a new env var in `cool_fox/crates/victory-gpu/src/host.rs`
-that caps idle preludes kept (default 64). Each prelude is one command allocator plus
-one closed command list — about 5 MB of PC commit memory. Per-list preludes were made
-on demand and never recycled: every list that ever needed texture transitions owned one
-prelude for its whole life. With hundreds of lists that is thousands of allocator+list
-objects (~5 MB each) all committed at once — the prelude count climbed 126→876 (~4.4 GB
-of commit) and exhausted Windows commit headroom before OOM. Used preludes now go back
-to a pool (`PRELUDE_IDLE`) and are reused; `PreludeSlot::Drop` returns a prelude to the
-pool while idle count is under `VICTORY_MAX_PRELUDES`, above that it is released.
+`VICTORY_MAX_PRELUDES` caps idle preludes kept (default 64). Each prelude is
+one command allocator plus one closed command list — about 5 MB of PC commit
+memory. Used preludes now go back to a pool (`PRELUDE_IDLE`) and are reused;
+`PreludeSlot::Drop` returns a prelude to the pool while idle count is under
+`VICTORY_MAX_PRELUDES`, above that it is released.
 
-You need: Windows 10/11 x64, your own copy of the title, a Direct3D 12 card
-with a recent driver, [Git for Windows](https://git-scm.com/download/win),
-[Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs
-itself), and the Visual Studio Build Tools with "Desktop development with C++"
-and a Windows SDK.
+### How to compare frame rates with ours
 
-1. Get this repository — the vendored `cool_fox/` tree already carries patches
-   0001–0002, so nothing needs cloning or `git am`-ing besides this repository:
-   ```powershell
-   git clone https://github.com/WASDeKeys/victory-gtx1660
-   cd victory-gtx1660
-   ```
-   Optional patches (`patches/optional/`, diagnostics and experiments) can be
-   applied on top if you want them:
-   ```powershell
-   cd cool_fox; git apply ..\patches\optional\0003-*.patch; cd ..
-   ```
-2. Build (10–20 minutes the first time), with the diagnostics feature as in
-   our runs (it prints the frame statistics line used to measure; without it
-   there is no such line in the log):
-   ```powershell
-   .\scripts\build.ps1
-   # or from Linux/WSL with the vendored tree as SRC_DIR:
-   # SRC_DIR=$PWD/cool_fox ./scripts/build.sh
-   ```
-   The result is `cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe`.
-3. Run with the measured settings (`run.cmd` starts `run.ps1` without
-   touching PowerShell's script policy):
-   ```powershell
-   .\scripts\run.cmd -Exe .\cool_fox\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
-   ```
-   The script first clears every `VICTORY_*` variable left in your
-   environment (other forks' guides set some system-wide), then prints
-   "victory-gtx1660: settings in effect:" with every value. **Check that this
-   list shows `VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=256`,
-   `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`** before
-   comparing frame rates.
-   If video memory runs short (stutter, textures missing), add `-MipDrop 2` or `3`;
-   `-Console series-x` selects the larger console profile (slower).
-4. The first run translates every shader and compiles pipelines: expect
-   several slow minutes and stutter; judge the speed on the second run. The
-   fork keeps its caches under `%LOCALAPPDATA%\victory\cache` unless
-   `VICTORY_CACHE_DIR` is set (see `victory.example.toml` in the fork).
+Our figures are the median of the log's frame statistics line
+(`... fps, ... ms/frame (... preparing ...)`, diagnostics build,
+`VICTORY_LOG=info`, which `run.ps1` sets) over the steady first scene, Series
+S profile, second run or later (warm caches), with no frame generation.
 
-To change one setting, set it in the same window and call the script with
-`-KeepEnv` (`$env:VICTORY_TEXTURE_MIP_DROP = '1'`; without `-KeepEnv` the
-script clears it); it then names every value that differs from the measured
-one. What each setting does is documented in `scripts/settings.env`.
+A figure from another fork is often taken differently: some use the Series X
+profile with a capped output resolution (`VICTORY_RESOLUTION=1920x1080`),
+a lower render scale, skipped ray-tracing passes, a window-title counter, or
+a driver's frame generation (which doubles what you see, not what the game
+computes). Compare like with like.
 
-**How to compare frame rates with ours.** Our figures are the median of the
-log's frame statistics line (`... fps, ... ms/frame (... preparing ...)`,
-diagnostics build, `VICTORY_LOG=info`, which `run.ps1` sets) over the steady
-first scene, Series S profile, second run or later (warm caches), with no
-frame generation. A figure from another fork is often taken differently:
-some use the Series X profile with a capped output resolution
-(`VICTORY_RESOLUTION=1920x1080`), a lower render scale, skipped ray-tracing
-passes, a window-title counter, or a driver's frame generation (which
-doubles what you see, not what the game computes). Compare like with like.
+### Whether the memory settings took effect
 
-**Whether the memory settings took effect** shows in the same log (diagnostics
-build): the line "host copies in the card's memory: N copies X MB ..." should
-read about 1,000 MB or more once the scene runs. Copies go to the card only
-while a fifth of the card's memory budget is free; on Windows that budget is
-what the system grants this process (other programs and the desktop take their
-share), so fewer copies may fit than under Linux. If X stays
-near 500 MB, close other programs that use the GPU or try `-MipDrop 3`.
+Shows in the same log (diagnostics build): the line
+"host copies in the card's memory: N copies X MB ..." should read about
+1,000 MB or more once the scene runs. Copies go to the card only while a
+fifth of the card's memory budget is free; on Windows that budget is what the
+system grants this process (other programs and the desktop take their share),
+so fewer copies may fit than under Linux. If X stays near 500 MB, close other
+programs that use the GPU or try `-MipDrop 3`.
+
 If something goes wrong, compare with the fork's own launcher
 (`Play-VIctory.cmd` in cool_fox) to tell a problem of these patches from one
 of the fork.
