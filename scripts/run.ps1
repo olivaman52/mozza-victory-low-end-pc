@@ -24,6 +24,12 @@ $settings = [ordered]@{
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '1'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'
+    # User-provided GTX 1660 overrides:
+    VICTORY_RAW_VIEWS           = '0'
+    VICTORY_GROUP_SYNC          = '2'
+    VICTORY_WAVE_LOCAL          = 'idiom'
+    VICTORY_WAVE_WIDE           = ''
+    VICTORY_PIPELINE_BOOK       = '1'
     # Commit-pressure guards for Windows: keep idle staging blocks and preludes low
     # so commit headroom isn't exhausted before the scene runs.
     VICTORY_STAGING_KEPT        = '4'

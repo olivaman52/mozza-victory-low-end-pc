@@ -32,11 +32,9 @@ if (-not (Test-Path $Game)) {
 }
 
 # Measured settings (scripts/settings.env)
-# Mid-range defaults: CARD_BUFFERS_MB=1024 can exhaust commit on 6 GB laptop
-# cards; 512 leaves more headroom. MipDrop=3 keeps textures soft enough to fit.
 $settings = [ordered]@{
     # Measured settings (user-provided overrides):
-    VICTORY_CARD_BUFFERS_MB     = '512'
+    VICTORY_CARD_BUFFERS_MB     = '1024'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '1'
