@@ -1,4 +1,4 @@
-# run.ps1 -Exe <victory.exe> -Game <your own copy's executable> [-Console series-s] [-MipDrop 3] [-KeepEnv]
+# run.ps1 -Exe <victory.exe> -Game <your own copy's executable> [-Console series-s] [-MipDrop 1] [-KeepEnv]
 # Starts the title on Windows with the settings measured in RESULTS.md (the same values as settings.env).
 # NOT TESTED ON WINDOWS BY US: every measurement of this repository was made under Linux/Wine.
 # Every VICTORY_* variable already in your environment is cleared first (except the path variables
@@ -10,15 +10,15 @@ param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Game,
     [ValidateSet('series-s', 'series-x')][string]$Console = 'series-s',
-    [ValidateRange(0, 3)][int]$MipDrop = 3,
+    [ValidateRange(0, 3)][int]$MipDrop = 1,
     [string]$Log = 'info',
     [switch]$KeepEnv
 )
 $settings = [ordered]@{
     # Memory placement: the three settings behind the step from about 280 to about 100 ms per frame on a 6 GB card.
-    # On a card with 8 GB or more, try -MipDrop 2 (sharper textures) first.
+    # Measured on 6 GB: drop 1 with CARD_WINDOWS_MB=256. If video memory runs short, use -MipDrop 2 or 3.
     VICTORY_CARD_BUFFERS_MB     = '1024'
-    VICTORY_CARD_WINDOWS_MB     = '768'
+    VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '0'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'

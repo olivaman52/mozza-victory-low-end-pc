@@ -74,7 +74,26 @@ that of 0001–0002.
 Picture: as B, textures one mip level softer (drop 3 instead of 2); heads still
 not drawn. Four further runs of 420 s with the same settings were clean, with medians of 100.6, 104.3, 106.4 and 101.4 ms per frame (264 to 320 s of scene each). The only driver messages were logged at the moment each run was stopped.
 
-One further run with `VICTORY_TEXTURE_MIP_DROP=2` (sharper textures) and the same memory settings gave 97–100 ms per frame, clean; with drop 1 it was 115 ms (6 GB no longer hold the copies). Drop 2 is not yet validated on five runs.
+One further run with `VICTORY_TEXTURE_MIP_DROP=2` (sharper textures) and the same memory settings gave 97–100 ms per frame, clean; with drop 1 it was 115 ms (6 GB no longer hold the copies). Drop 2 with these settings was then validated on five clean runs (92–106 ms).
+
+## D. Current settings: C with `VICTORY_CARD_WINDOWS_MB=256` and `VICTORY_TEXTURE_MIP_DROP=1`
+
+Five clean runs of 420 s: medians 98, 112.2, 101.9, 106 and 107.7 ms per frame (270–340 s of scene each). Sharper textures than C at the same speed.
+
+Budget sweep, runs of 330 s (compare only runs of equal length: the scene gets heavier with time, 330 s runs read about 10 ms lower than 420 s runs), `MIP_DROP=2`:
+
+| `CARD_BUFFERS_MB` | `CARD_WINDOWS_MB` | median ms per frame |
+|---|---|---|
+| 1024 | 768 | 92–98, 96.5 |
+| 1024 | 256 | 91.2, 90.2, 93.5 |
+| 1024 | 128 | 97.8 |
+| 1024 | 0 | 93.6 |
+| 1280 | 512 | 106.1 |
+| 1536 | 256 | 103.7 |
+| 768 | 1024 | 273.7 |
+| 640 | 1152 | 274.6 |
+
+So `CARD_BUFFERS_MB=1024` carries the gain: below it the frame time returns to about 275 ms. With the monitors awake or asleep the figures are the same within noise.
 
 
 

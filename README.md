@@ -32,7 +32,8 @@ tool). Details per run in [RESULTS.md](RESULTS.md).
 |---|---|---|---|
 | cool_fox `f4b48ad`, unmodified, its launcher's settings | 360–410 | 2.4–2.8 | 1 (15 min) |
 | + patches 0001–0002, `LEVELS_ON_DEMAND=0`, `TEXTURE_MIP_DROP=2` | 271–291 | 3.4–3.7 | 5 (7–15 min each) |
-| + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` | 100–106 | 9.4–9.9 | 5 (4–8 min of scene each; medians 102.5, 100.6, 104.3, 106.4, 101.4), all clean |
+| + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=256`, `TEXTURE_MIP_DROP=1` (**current settings**: sharper textures, same speed) | 98–112 | 9–10 | 5 (4.5–6 min of scene each; medians 98, 112.2, 101.9, 106, 107.7), all clean |
+| the same with `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` (first settings found) | 100–106 | 9.4–9.9 | 5 (4–8 min of scene each; medians 102.5, 100.6, 104.3, 106.4, 101.4), all clean |
 
 Machine: GTX 1660 6 GB, Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
 LTS), NVIDIA driver 620.73.04 (open kernel modules rebuilt with NVIDIA's
@@ -51,10 +52,14 @@ and texture copies start one mip level further down so that this fits in 6 GB.
   buffers on top of textures; on 6 GB that just fits (one texture level
   sharper already costs 15 %). On a 4 GB card they overflow: one user reports
   about 3 fps and a black picture. Untested starting point for 4 GB:
-  `VICTORY_TEXTURE_MIP_DROP=3`, `VICTORY_CARD_BUFFERS_MB=512`,
+  `VICTORY_TEXTURE_MIP_DROP=3`, `VICTORY_CARD_BUFFERS_MB=1024`,
   `VICTORY_CARD_WINDOWS_MB=256` (set them before launching; on Windows add
   `-KeepEnv` to `run.cmd`). With 8 GB or more, try
-  `VICTORY_CARD_WINDOWS_MB=1536` and `VICTORY_TEXTURE_MIP_DROP=2` or `1`.
+  `VICTORY_TEXTURE_MIP_DROP=0`. **Do not lower `VICTORY_CARD_BUFFERS_MB` below
+  1024**: measured here, 768 or 640 loses the whole gain (back to about
+  275 ms per frame), and raising it to 1280–1536 gains nothing; a larger
+  `VICTORY_CARD_WINDOWS_MB` did not help either (768: about 3–5 ms slower than
+  256 in runs of equal length).
 
 - **Only the first playable scene was measured.** Nothing later in the title
   (open areas, driving, streets with traffic) has been run by us: expect it to
@@ -62,12 +67,16 @@ and texture copies start one mip level further down so that this fits in 6 GB.
   it may show defects we have not seen (a black picture was reported by one
   user in an open area).
 
-- **Characters' heads are not drawn.** The cause is not found. The same
-  defect was seen with unmodified cool_fox on this machine. Ruled out so far:
-  the texture settings and the integer buffer view path (`patches/optional/0007`).
+- **Characters' heads are missing in most runs** (about 13 of 15): the head
+  geometry never reaches the picture and the hair is deformed, from the first
+  seconds of the scene to the end of the run; in the other runs heads and hair
+  are correct with the same build and settings. The same defect is seen with
+  unmodified cool_fox on this machine; not seen with the older tree. Cause not
+  found yet. Ruled out: texture settings, the speed settings, mesh output
+  limits, the integer buffer view path (`patches/optional/0007`).
 - **Ray-traced lighting is not computed**: the fork's ambient-light stand-in
   (`VICTORY_AMBIENT`) replaces it, so lighting and shadows are approximate.
-- **Textures are one mip level softer** than with `VICTORY_TEXTURE_MIP_DROP=2`
+- **Textures start one mip level down** (`VICTORY_TEXTURE_MIP_DROP=1`; with 3 they are visibly softer; 0 does not fit in 6 GB next to the buffer copies) — compare with drop 2
   (which gives the 271–291 ms row).
 - **The start screen was not passed with the monitors awake** on this setup
   (unexplained). The runs were made with the screens put to sleep with DPMS
@@ -131,8 +140,8 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 **Not tested by us**: all our runs were under Linux.
 
 > **The patches alone do not give the ~100 ms figure.** Most of the gain comes
-> from three settings (`VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=768`,
-> `VICTORY_TEXTURE_MIP_DROP=3`, with `VICTORY_LEVELS_ON_DEMAND=0`). Start the
+> from three settings (`VICTORY_CARD_BUFFERS_MB=1024` above all, with `VICTORY_CARD_WINDOWS_MB=256`,
+> `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`). Start the
 > title **only with `scripts\run.cmd` (or `run.ps1`)**. Starting `victory.exe`
 > yourself, or cool_fox's own `Play-VIctory.cmd`, runs without them
 > (`Play-VIctory.cmd` also sets `VICTORY_LEVELS_ON_DEMAND=1`): that is the
@@ -186,10 +195,10 @@ and a Windows SDK.
    The script first clears every `VICTORY_*` variable left in your
    environment (other forks' guides set some system-wide), then prints
    "victory-gtx1660: settings in effect:" with every value. **Check that this
-   list shows `VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=768`,
-   `VICTORY_TEXTURE_MIP_DROP=3` and `VICTORY_LEVELS_ON_DEMAND=0`** before
+   list shows `VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=256`,
+   `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`** before
    comparing frame rates.
-   With 8 GB of video memory or more, add `-MipDrop 2` for sharper textures;
+   If video memory runs short (stutter, textures missing), add `-MipDrop 2` or `3`;
    `-Console series-x` selects the larger console profile (slower).
 4. The first run translates every shader and compiles pipelines: expect
    several slow minutes and stutter; judge the speed on the second run. The
