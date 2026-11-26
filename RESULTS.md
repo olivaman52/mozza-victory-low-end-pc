@@ -125,16 +125,17 @@ cache folder, so that "cold" really means empty). No `VICTORY_*` value differed 
 | RAM | 32 GB, 64 GB page file |
 | OS | Windows 11 Pro 26200 (native, no Wine) |
 
-**Method.** The frame statistics line was read from the log, as in the sections above. Each such line is
-an average over the roughly 5 s since the previous one, so "worst" below means the worst 5 s average,
-not the worst single frame. The scene
+**Method.** The frame statistics line was read from the log, as in the sections above. The counters
+behind it reset about every 1 s, and the line is printed about every 5 s. So each line is the average
+of the roughly 1 s interval before it, sampled every 5 s, and "worst" below means the worst sampled
+interval average, not the worst single frame. The scene
 starts at the first line of the playable cell scene, which comes after the start screens and the opening
 cutscene. Both runs were stopped by closing the window, after about 230 s of scene (cold) and about
 205 s (warm). To compare windows of equal length, the table covers the first 200 s of scene, and a second
 row in each pair leaves out the first 30 s. Cold = `VICTORY_CACHE_DIR` deleted before launch. Warm = the
 next launch with the same folder. The driver's own shader cache was not cleared.
 
-| Run | Window | Lines | median ms/frame | p10–p90 | worst 5 s average | mean | lines > 100 ms | preparing | copies | copying back | waiting for the GPU | draws/frame |
+| Run | Window | Lines | median ms/frame | p10–p90 | worst sampled interval | mean | lines > 100 ms | preparing | copies | copying back | waiting for the GPU | draws/frame |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | cold | 0–200 s | 39 | **61.2** (16.3 fps) | 54.4–70.2 | 301.5 | 74.3 | 3 | 55.4 | 15.1 | 22.9 | 0.1 | 3,735 |
 | cold | 30–200 s | 33 | 59.1 | 54.4–66.3 | 76.1 | 60.1 | 0 | 53.7 | 14.5 | 23.0 | 0.2 | 3,548 |
@@ -147,7 +148,7 @@ Other observations from the same logs:
   peaked at 66 per line during the first 30 s of scene and dropped to 0–2 after that. In the warm run
   the count stayed at 0.
 - **Warming removes stutter, not steady frame time.** The steady median is 59 ms either way. The warm
-  cache takes away the cold run's first-minute spikes: the worst 5 s average falls from 301 ms to
+  cache takes away the cold run's first-minute spikes: the worst sampled interval average falls from 301 ms to
   171 ms, and the mean from 74 ms to 64 ms.
 - **The card is mostly waiting on the submitting thread.** "Preparing" (about 54 ms, of which copies
   take 12–15 ms) is almost the whole frame time. "Waiting for the GPU" (the line's "on the GPU" field,
