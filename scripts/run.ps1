@@ -15,11 +15,11 @@ param(
     [switch]$KeepEnv
 )
 $settings = [ordered]@{
-    # Memory placement: mid-range defaults. The measured GTX 1660 values
-    # (CARD_BUFFERS_MB=1024, MipDrop=1) can exhaust commit on 6 GB laptop
-    # cards; drop them if you get "Insufficient system resources" (os error 1450).
-    # Measured on 6 GB: drop 1 with CARD_WINDOWS_MB=256. If video memory runs short, use -MipDrop 2 or 3.
-    VICTORY_CARD_BUFFERS_MB     = '512'
+    # Memory placement: mid-range defaults matching scripts/settings.env
+    # (the measured ~100 ms/frame configuration, clean on 6 GB). If you hit
+    # "Insufficient system resources" (os error 1450), drop CARD_BUFFERS_MB
+    # to 512 and/or raise -MipDrop.
+    VICTORY_CARD_BUFFERS_MB     = '1024'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
     VICTORY_LEVELS_ON_DEMAND    = '1'
@@ -50,6 +50,9 @@ $settings = [ordered]@{
     # "info" prints the frame statistics line ("... fps, ... ms/frame (... preparing ...)") that RESULTS.md
     # quotes; it exists only in a build made with --features diagnostics (README, Windows, step 3).
     VICTORY_LOG                 = $Log
+    # Report the host's display size (1080p here) rather than defaulting to
+    # 4K; the title otherwise renders a 3840x2160 scene the window shrinks.
+    VICTORY_DISPLAY_MODE        = '1920x1080'
 }
 if (-not (Test-Path $Exe))  { Write-Host "No $Exe. Build it first (README.md, Windows)."; exit 2 }
 if (-not (Test-Path $Game)) { Write-Host "No $Game. Pass the executable of your own copy of the title."; exit 2 }

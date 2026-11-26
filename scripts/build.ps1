@@ -6,7 +6,7 @@
 # by the checkout. Needs Rust with the x86_64-pc-windows-msvc target and the
 # Visual Studio Build Tools (link.exe + Windows SDK).
 #
-# Result: cool_fox\target\release\victory.exe
+# Result: cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
 # Logs:   D:\victory-gtx1660\build-log-<timestamp>.txt      (full cargo output)
 #         D:\victory-gtx1660\build-summary-<timestamp>.txt  (important parts only)
 $ErrorActionPreference = 'Stop'
@@ -29,13 +29,16 @@ try {
     Write-Host "build.ps1: cargo build $args"
     Write-Host "  full log: $buildLog"
 
-    # Run cargo, tee to console and capture everything to the build log.
-    $errLog = Join-Path $root "build-err-$ts.txt"
-    $proc = Start-Process -FilePath 'cargo' -ArgumentList (@('build', '-p', 'victory', '--target', 'x86_64-pc-windows-msvc') + $args) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $buildLog -RedirectStandardError $errLog
-    $code = $proc.ExitCode
-    # Merge stderr into the full log so nothing is lost.
-    try { Add-Content -Path $buildLog -Path $errLog } catch {}
-    Remove-Item -Path $errLog -ErrorAction SilentlyContinue
+    # Run cargo, capturing everything to the build log.
+    #
+    # Note: Start-Process -RedirectStandardOutput ... -Wait can hang *after*
+    # cargo exits because a lingering child process (e.g. mspdbsrv.exe) keeps
+    # the redirected pipe handle open, so PowerShell never sees the pipe close.
+    # PowerShell's own redirection waits only on the cargo process, so it does
+    # not hang. Output still lands in $buildLog; the tail is shown below.
+
+    & cargo build -p victory --target x86_64-pc-windows-msvc @args > $buildLog 2>&1
+    $code = $LASTEXITCODE
 
     $end = Get-Date
     $seconds = ($end - $start).TotalSeconds
