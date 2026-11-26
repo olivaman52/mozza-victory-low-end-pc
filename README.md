@@ -117,7 +117,11 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
    tree already carries patches 0001–0002, so nothing needs cloning or
    `git am`-ing — just this repository:
    ```sh
-   XWIN_DIR=/path/to/xwin-splat scripts/build.sh
+   # Point at the directory where xwin splat was installed
+   export XWIN_DIR=/path/to/xwin-splat
+
+   # Build victory.exe (cross-build from Linux)
+   scripts/build.sh
    ```
    The result is `cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe`.
    Optional patches (`patches/optional/`, diagnostics and experiments) can be
@@ -133,10 +137,15 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
    indirect draws are dropped.
 3. Run with the settings of `scripts/settings.env`:
    ```sh
-   VICTORY_EXE=$PWD/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe \
-   GAME_EXE=/path/to/your/own/copy/<its executable> \
-   PROTON_DIR=/path/to/GE-Proton11-6/files \
-   WINEPREFIX=/path/to/prefix WORK_DIR=/path/to/workdir DPMS=1 \
+   # Set the required paths and environment variables
+   export VICTORY_EXE="$PWD/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe"
+   export GAME_EXE="/path/to/your/own/copy/<its executable>"
+   export PROTON_DIR="/path/to/GE-Proton11-6/files"
+   export WINEPREFIX="/path/to/prefix"
+   export WORK_DIR="/path/to/workdir"
+   export DPMS=1
+
+   # Run the game
    scripts/run.sh 600
    ```
    The run is sandboxed (no network, read-only system except `WORK_DIR` and
@@ -201,12 +210,12 @@ cd cool_fox; git apply ..\patches\optional\0003-*.patch; cd ..
 From inside the repo folder:
 
 ```powershell
+# Build victory.exe in release mode with diagnostics feature
+# This runs `cargo build --release --features diagnostics` inside cool_fox/
 .\scripts\build.ps1
 ```
 
-This runs `cargo build` inside `cool_fox/` with the diagnostics feature (it
-prints the frame statistics line used to measure; without it there is no such
-line in the log).
+This runs `cargo build` inside `cool_fox/` with the diagnostics feature (it prints the frame statistics line used to measure; without it there is no such line in the log).
 
 First build: **10–20 minutes**. Later builds are much faster.
 
@@ -229,6 +238,7 @@ settings are applied. Starting `victory.exe` yourself, or cool_fox's own
 `Play-VIctory.cmd`, runs without them.
 
 ```powershell
+# Run victory.exe with the game executable (set -Game to your game's .exe)
 .\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
 ```
 
