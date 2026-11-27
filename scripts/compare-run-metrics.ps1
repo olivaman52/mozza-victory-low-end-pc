@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)][DateTimeOffset]$ControlFrom,
     [Parameter(Mandatory)][DateTimeOffset]$CandidateFrom,
     [Parameter(Mandatory)][ValidatePattern('^VICTORY_[A-Z_0-9]+$')][string]$Setting,
+    [switch]$RequireSuccessfulExit,
     [ValidateRange(1, 600)][int]$Seconds = 60
 )
 
@@ -17,6 +18,9 @@ function Read-Run([string]$Directory) {
 
 $control = Read-Run $ControlRun
 $candidate = Read-Run $CandidateRun
+if ($RequireSuccessfulExit -and (@($control,$candidate) | Where-Object { $_.status -ne 'exited' -or $_.exit_code -ne 0 })) {
+    throw 'Both game processes must have exited successfully for this comparison.'
+}
 if ($control.binary_sha256 -notmatch '^[a-fA-F0-9]{64}$' -or
     $control.binary_sha256 -ne $candidate.binary_sha256) {
     throw 'The runs must use the same executable hash.'
