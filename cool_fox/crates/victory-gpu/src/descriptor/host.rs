@@ -985,28 +985,46 @@ impl TextureQueue {
     ///   (run 52: 98% of the drawn pixels had no colour texture in the
     ///   first 3D frames).
     fn due(&self, frame: u64, max: usize) -> Vec<(u32, u64)> {
-        let mut again: Vec<(u64, u32, u64)> = Vec::new();
-        let mut fresh: Vec<(u64, u32, u64)> = Vec::new();
+        if max == 0 {
+            return Vec::new();
+        }
+        let mut again = Vec::new();
+        let mut fresh = Vec::new();
         for (&index, w) in self.slots.iter().filter(|(_, w)| w.due <= frame) {
             let class = if w.looks > 0 || w.mapped > 0 { &mut again } else { &mut fresh };
-            class.push((w.written, index, w.write));
+            class.push((index, w.write));
         }
-        // By the number of the write, counted over the run.
-        let newest_first = |a: &(u64, u32, u64), b: &(u64, u32, u64)| b.2.cmp(&a.2);
+        // Write numbers are unique. Partition before sorting so only entries
+        // the pass can serve need to be ordered.
+        let newest_first = |a: &(u32, u64), b: &(u32, u64)| b.1.cmp(&a.1);
+        if again.len() > max {
+            again.select_nth_unstable_by(max, newest_first);
+            again.truncate(max);
+        }
         again.sort_unstable_by(newest_first);
-        fresh.sort_unstable_by(newest_first);
-        let mut order: Vec<(u32, u64)> = again.iter().map(|&(_, index, write)| (index, write)).collect();
-        let (mut new, mut old) = (0, fresh.len());
-        while new < old && order.len() < max {
-            order.push((fresh[new].1, fresh[new].2));
-            new += 1;
-            if new < old && order.len() < max {
-                old -= 1;
-                order.push((fresh[old].1, fresh[old].2));
-            }
+        let take = (max - again.len()).min(fresh.len());
+        if take == 0 {
+            return again;
         }
-        order.truncate(max);
-        order
+        let new_count = take.div_ceil(2);
+        let old_count = take / 2;
+        if new_count < fresh.len() {
+            fresh.select_nth_unstable_by(new_count, newest_first);
+        }
+        let (newest, rest) = fresh.split_at_mut(new_count);
+        newest.sort_unstable_by(newest_first);
+        let oldest_at = rest.len() - old_count;
+        if old_count != 0 && oldest_at != 0 {
+            rest.select_nth_unstable_by(oldest_at, newest_first);
+        }
+        let oldest = &mut rest[oldest_at..];
+        oldest.sort_unstable_by_key(|entry| entry.1);
+        again.reserve(take);
+        for (position, &entry) in newest.iter().enumerate() {
+            again.push(entry);
+            again.extend(oldest.get(position).copied());
+        }
+        again
     }
 
     /// The entry of `index` if it is still the write the pass was handed.
@@ -5297,6 +5315,42 @@ mod tests {
     /// slot whose memory is not there is looked at again after
     /// 1, 2, 4 frames up to the limit; and what the pass reports about a
     /// slot written again meanwhile is dropped.
+    #[test]
+    fn partitioned_texture_queue_matches_the_full_sort() {
+        let mut queue = TextureQueue::default();
+        for n in 0..127u32 {
+            let slot = n * 79 % 127;
+            queue.written(slot, 0, u64::from(n % 11), false);
+            if n % 3 == 0 {
+                queue.slots.get_mut(&slot).unwrap().looks = 1;
+            } else if n % 7 == 0 {
+                queue.slots.get_mut(&slot).unwrap().mapped = 64;
+            }
+        }
+        queue.written(75, 12, 12, false);
+        queue.remove(10);
+
+        for frame in 0..=13 {
+            let mut entries: Vec<_> = queue.slots.iter().filter(|(_, w)| w.due <= frame).collect();
+            entries.sort_unstable_by_key(|(_, w)| std::cmp::Reverse(w.write));
+            let (mut expected, fresh): (Vec<_>, Vec<_>) = entries
+                .into_iter()
+                .partition(|(_, w)| w.looks != 0 || w.mapped != 0);
+            for position in 0..fresh.len() {
+                let i = if position % 2 == 0 { position / 2 } else { fresh.len() - 1 - position / 2 };
+                expected.push(fresh[i]);
+            }
+            let expected: Vec<_> = expected.into_iter().map(|(&slot, w)| (slot, w.write)).collect();
+            for max in 0..=expected.len() + 1 {
+                assert_eq!(
+                    queue.due(frame, max),
+                    expected[..max.min(expected.len())],
+                    "frame {frame}, limit {max}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn the_texture_queue_serves_the_newest_writes_first() {
         let mut q = TextureQueue::default();
