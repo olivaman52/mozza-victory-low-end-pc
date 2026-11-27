@@ -363,3 +363,18 @@ of the fork.
 
 GPL-3.0-or-later, as VIctory and cool_fox; the patches are derived work of
 cool_fox. See [LICENSE](LICENSE).
+
+## Publication and build status
+
+This repository preserves the development history, performance
+benchmarks, and AI-assisted engineering reports.
+
+Personal information has been sanitized from Git history.
+Historical commit hashes mentioned in reports may refer to
+the original development repository.
+
+The bcpack-tables.bin dependency has been excluded pending
+confirmation of redistribution rights. Consequently, this
+public source snapshot is not currently buildable as-is.
+
+Some experimental optimizations remain unfinished or unverified.
