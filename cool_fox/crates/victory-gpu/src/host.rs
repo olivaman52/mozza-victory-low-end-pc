@@ -453,12 +453,9 @@ fn sweep() {
     crate::residency::refresh();
     if crate::residency::pressured() {
         trim_spare_chunks();
-        // Release idle preludes (~5 MB of commit each) so the commit they hold
-        // is available for the host lists that must close.
-        let mut idle = PRELUDE_IDLE.lock().unwrap_or_else(|e| e.into_inner());
-        let released = std::mem::take(&mut *idle);
-        drop(idle);
-        drop(released);
+    }
+    if crate::residency::commit_pressured() {
+        trim_idle_command_storage();
     }
     crate::pool::room(host().and_then(|h| h.video_memory()));
     crate::pipeline::trim_library();
@@ -793,6 +790,12 @@ pub(crate) static LISTS: [std::sync::atomic::AtomicU64; 4] = [const { std::sync:
 /// released, so a later list that needs transitions reuses one.
 static PRELUDE_IDLE: std::sync::Mutex<Vec<Prelude>> = std::sync::Mutex::new(Vec::new());
 
+fn trim_idle_command_storage() {
+    crate::list::trim_idle();
+    let released = std::mem::take(&mut *PRELUDE_IDLE.lock().unwrap_or_else(|e| e.into_inner()));
+    drop(released);
+}
+
 /// The most idle preludes kept. `VICTORY_MAX_PRELUDES` overrides; 0 means
 /// none are kept (each is released right after its list is reset).
 const PRELUDE_IDLE_MOST: usize = 64;
@@ -801,7 +804,7 @@ fn max_preludes() -> usize {
     // Under commit or physical memory pressure, no preludes are kept idle:
     // each is ~5 MB of commit, and keeping them starves the lists that need
     // to close. A prelude is released straight away instead of pooled.
-    if crate::residency::pressured() {
+    if crate::residency::commit_pressured() {
         return 0;
     }
     static ON: OnceLock<usize> = OnceLock::new();
@@ -6395,11 +6398,12 @@ impl HostList {
         // SAFETY: our list.
         match unsafe { self.list.Close() } {
             Ok(()) => {}
-            Err(e) if e.code() == windows::Win32::Foundation::E_OUTOFMEMORY => {
+            Err(e) if e.code() == E_OUTOFMEMORY => {
                 // Out of memory while closing: free idle preludes and host
                 // lists (they hold ~5+ MB each) and retry once. The first
                 // close may have raced with an allocation the pressure
                 // release now frees.
+                trim_idle_command_storage();
                 sweep();
                 if let Err(e) = unsafe { self.list.Close() } {
                     fail(format_args!(
@@ -8787,6 +8791,25 @@ struct Presenter {
     panel: panel::Panel,
 }
 
+/// Nearest-rank quantiles of actual intervals between presentations.
+#[cfg(feature = "diagnostics")]
+fn frame_latency(intervals: &mut [f64]) -> Option<[f64; 3]> {
+    if intervals.is_empty() {
+        return None;
+    }
+    intervals.sort_unstable_by(f64::total_cmp);
+    Some([50, 95, 99].map(|percent| intervals[(percent * intervals.len()).div_ceil(100) - 1]))
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+#[test]
+fn frame_latency_uses_individual_presentation_intervals() {
+    assert_eq!(frame_latency(&mut []), None);
+    assert_eq!(frame_latency(&mut [42.0]), Some([42.0; 3]));
+    let mut sample: Vec<_> = (1..=100).rev().map(f64::from).collect();
+    assert_eq!(frame_latency(&mut sample), Some([50.0, 95.0, 99.0]));
+}
+
 /// The frame rate, shown in the window's caption every second and logged
 /// every few seconds.
 struct Meter {
@@ -8794,6 +8817,8 @@ struct Meter {
     frames: u32,
     #[cfg(feature = "diagnostics")]
     copy_stats_frames: u64,
+    #[cfg(feature = "diagnostics")]
+    frame_intervals: Option<(Option<std::time::Instant>, Vec<f64>)>,
     drawn: u64,
     logged: std::time::Instant,
     /// The caption the window had, once read.
@@ -8808,6 +8833,8 @@ impl Meter {
             frames: 0,
             #[cfg(feature = "diagnostics")]
             copy_stats_frames: 0,
+            #[cfg(feature = "diagnostics")]
+            frame_intervals: crate::switch::on("VICTORY_FRAME_METRICS").then(|| (None, Vec::with_capacity(64))),
             drawn: crate::draw::drawn(),
             logged: now,
             caption: None,
@@ -8830,6 +8857,12 @@ impl Meter {
         #[cfg(feature = "diagnostics")]
         {
             self.copy_stats_frames += 1;
+            if let Some((last, intervals)) = self.frame_intervals.as_mut() {
+                let now = std::time::Instant::now();
+                if let Some(last) = last.replace(now) {
+                    intervals.push(now.duration_since(last).as_secs_f64() * 1e3);
+                }
+            }
         }
         let elapsed = self.since.elapsed();
         if elapsed < std::time::Duration::from_secs(1) {
@@ -8854,6 +8887,31 @@ impl Meter {
         });
         let dropped = crate::draw::take_dropped() as f64 / frames;
         let indirect = crate::list::take_indirect() as f64 / frames;
+        #[cfg(feature = "diagnostics")]
+        if let Some((_, intervals)) = self.frame_intervals.as_mut() {
+            if let Some([p50_ms, p95_ms, p99_ms]) = frame_latency(intervals) {
+                tracing::info!(
+                    target: "victory_gpu::frame_metrics",
+                    samples = intervals.len(),
+                    fps,
+                    p50_ms,
+                    p95_ms,
+                    p99_ms,
+                    cpu_prepare_ms = cpu,
+                    gpu_wait_ms = gpu,
+                    buffer_upload_mb = copy_mb,
+                    texture_upload_mb = texture_mb,
+                    readback_ms = back_ms,
+                    readback_mb = back_mb,
+                    draws,
+                    missing_pipeline_draws = dropped,
+                    dropped_indirect = indirect,
+                    compiling_pipelines = crate::pipeline::making(),
+                    "present interval metrics"
+                );
+            }
+            intervals.clear();
+        }
         let mesh_largest = MESH_GROUPS[0].swap(0, Ordering::Relaxed);
         let mesh_groups = MESH_GROUPS[1].swap(0, Ordering::Relaxed) as f64 / frames;
         let refused = BUDGET_NOTES[0].swap(0, Ordering::Relaxed) as f64 / frames;

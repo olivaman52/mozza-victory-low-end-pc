@@ -236,11 +236,20 @@ static IDLE: std::sync::Mutex<(Vec<Idle>, u64)> = std::sync::Mutex::new((Vec::ne
 /// their preludes and buffers, 12 % of the submitting thread in the opening,
 /// profile cpu-1), and the most upload memory they may keep
 /// between them (a list keeps scratch chunks over a reset only while lists
-/// do not share them, `VICTORY_SCRATCH_POOL=0`). Kept small on low-end hosts:
-/// every idle list holds an allocator, a command list and scratch, and under
-/// commit pressure they are dropped instead of pooled.
+/// do not share them, `VICTORY_SCRATCH_POOL=0`). Under low commit headroom,
+/// the idle pool is released.
 #[cfg(windows)]
-const IDLE_MOST: (usize, u64) = (128, 64 << 20);
+const IDLE_MOST: (usize, u64) = (512, 64 << 20);
+
+/// Releases idle lists outside the pool lock.
+#[cfg(windows)]
+pub(crate) fn trim_idle() {
+    let mut idle = IDLE.lock().unwrap_or_else(|e| e.into_inner());
+    let released = std::mem::take(&mut idle.0);
+    idle.1 = 0;
+    drop(idle);
+    drop(released);
+}
 
 /// Whether host lists that have run are used again (on by default;
 /// `VICTORY_LIST_POOL=0`: each is made new and thrown away, as before).
@@ -277,18 +286,8 @@ pub(crate) fn recycle(lists: Vec<Detached>, ran: &[usize]) {
     if !pools() {
         return;
     }
-    let pressured = crate::residency::pressured();
-    if pressured {
-        // Under commit/physical memory pressure, release every idle host list:
-        // each holds an allocator, a command list, scratch upload memory and
-        // possibly a prelude (~5+ MB of commit each). Free them rather than
-        // pooling; new lists are made when pressure eases. The lists handed in
-        // are dropped too (not reset, not pooled).
-        let mut idle = IDLE.lock().unwrap_or_else(|e| e.into_inner());
-        let dropped = std::mem::take(&mut idle.0);
-        idle.1 = 0;
-        drop(idle);
-        drop(dropped);
+    if crate::residency::commit_pressured() {
+        trim_idle();
         return;
     }
     for (i, Detached { mut host, _uploads, _state }) in lists.into_iter().enumerate() {

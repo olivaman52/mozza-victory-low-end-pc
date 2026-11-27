@@ -6,6 +6,7 @@ use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORY
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 static PRESSURED: AtomicBool = AtomicBool::new(false);
+static COMMIT_PRESSURED: AtomicBool = AtomicBool::new(false);
 static HEADROOM: AtomicU64 = AtomicU64::new(u64::MAX);
 
 fn memory_status() -> Option<MEMORYSTATUSEX> {
@@ -95,11 +96,11 @@ pub(crate) fn limited_host_ram() -> bool {
     *LIMITED.get_or_init(|| memory_status().is_some_and(|s| s.ullTotalPhys <= 32 * GIB))
 }
 
-fn next_pressure(was: bool, physical: u64, commit: u64) -> bool {
+fn low_headroom(was: bool, bytes: u64) -> bool {
     if was {
-        physical < 6 * GIB || commit < 6 * GIB
+        bytes < 6 * GIB
     } else {
-        physical <= 4 * GIB || commit <= 4 * GIB
+        bytes <= 4 * GIB
     }
 }
 
@@ -109,7 +110,17 @@ pub(crate) fn refresh() {
     let (physical, commit) = (status.ullAvailPhys, status.ullAvailPageFile);
     HEADROOM.store(physical.min(commit), Ordering::Relaxed);
     let was = pressured();
-    let pressure = next_pressure(was, physical, commit);
+    let pressure = low_headroom(was, physical.min(commit));
+    let was_commit_pressured = commit_pressured();
+    let commit_pressure = low_headroom(was_commit_pressured, commit);
+    if commit_pressure != was_commit_pressured {
+        COMMIT_PRESSURED.store(commit_pressure, Ordering::Relaxed);
+        tracing::info!(
+            active = commit_pressure,
+            available_commit_mib = commit >> 20,
+            "host command list commit pressure"
+        );
+    }
     if pressure != was {
         PRESSURED.store(pressure, Ordering::Relaxed);
         if pressure {
@@ -137,6 +148,11 @@ pub(crate) fn headroom() -> Option<u64> {
 
 pub(crate) fn pressured() -> bool {
     PRESSURED.load(Ordering::Relaxed)
+}
+
+/// Whether Windows commit headroom is low enough to release idle command lists.
+pub(crate) fn commit_pressured() -> bool {
+    COMMIT_PRESSURED.load(Ordering::Relaxed)
 }
 
 /// True when OS commit headroom is critically low (< 1.5 GiB) or an allocation
@@ -178,13 +194,16 @@ mod tests {
     }
 
     #[test]
-    fn either_constraint_enters_pressure_and_both_must_recover() {
-        assert!(next_pressure(false, 12 * GIB, 4 * GIB));
-        assert!(next_pressure(false, 3 * GIB, 16 * GIB));
-        assert!(next_pressure(true, 4 * GIB, 7 * GIB));
-        assert!(next_pressure(true, 6 * GIB, 5 * GIB));
-        assert!(!next_pressure(true, 5 * GIB, 6 * GIB));
-        assert!(!next_pressure(false, 4 * GIB, 5 * GIB));
+    fn memory_pressure_enters_at_four_gib_and_leaves_at_six() {
+        assert!(low_headroom(false, 4 * GIB));
+        assert!(!low_headroom(false, 4 * GIB + 1));
+        assert!(low_headroom(true, 6 * GIB - 1));
+        assert!(!low_headroom(true, 6 * GIB));
+
+        let physical = 3 * GIB;
+        let commit = 9 * GIB;
+        assert!(low_headroom(false, physical.min(commit)));
+        assert!(!low_headroom(false, commit));
     }
 
     #[test]
