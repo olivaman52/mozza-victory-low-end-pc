@@ -1060,9 +1060,23 @@ fn outside_sorted(from: usize, to: usize, skip: &[(usize, usize)], mut visit: im
     }
 }
 
+/// Join overlapping and adjacent exclusion spans in place. The ends then
+/// increase with the starts, so each piece can skip spans already behind it.
+fn join_exclusions(skip: &mut Vec<(usize, usize)>) {
+    skip.sort_unstable();
+    skip.dedup_by(|next, previous| {
+        if next.0 <= previous.1 {
+            previous.1 = previous.1.max(next.1);
+            true
+        } else {
+            false
+        }
+    });
+}
+
 #[cfg(test)]
 mod relay_tests {
-    use super::{CopyCoverage, Flights, changed_runs, merge_piece, outside, outside_sorted};
+    use super::{CopyCoverage, Flights, changed_runs, join_exclusions, merge_piece, outside, outside_sorted};
 
     /// A range two flights declared is free only when both are done, in
     /// either order; a submission that declares it many times counts once.
@@ -1159,6 +1173,22 @@ mod relay_tests {
                 let actual: Vec<usize> = parts.iter().flat_map(|&(a, b)| a..b).collect();
                 let expected: Vec<usize> = (from..to).filter(|&i| !skip.iter().any(|&(a, b)| a <= i && i < b)).collect();
                 assert_eq!(actual, expected, "piece {from}..{to}");
+            }
+        }
+    }
+
+    #[test]
+    fn indexed_landing_exclusions_match_the_original_byte_ranges() {
+        let unsorted = vec![(25, 30), (8, 9), (15, 20), (2, 8), (20, 25), (2, 10), (35, 38), (3, 5)];
+        let mut skip = unsorted.clone();
+        join_exclusions(&mut skip);
+        assert_eq!(skip, [(2, 10), (15, 30), (35, 38)]);
+        for from in 0..40 {
+            for to in from + 1..=40 {
+                let first = skip.partition_point(|span| span.1 <= from);
+                let mut actual = Vec::new();
+                outside_sorted(from, to, &skip[first..], |a, b| actual.push((a, b)));
+                assert_eq!(actual, outside(from, to, unsorted.clone()), "piece {from}..{to}");
             }
         }
     }
@@ -4530,23 +4560,25 @@ impl Shadow {
         let _merging = self.merging.read().unwrap_or_else(|e| e.into_inner());
         crate::land::spent(crate::land::stat::LOCK, waiting);
         let (from, to) = pieces.iter().fold((usize::MAX, 0), |(a, b), p| (a.min(p.0), b.max(p.1)));
-        let mut skip: Vec<(usize, usize)> = {
+        let mut skip = std::mem::take(&mut notes.exclusions);
+        let mut parts = std::mem::take(&mut notes.piece_ranges);
+        skip.clear();
+        {
             let dirty = card.dirty.lock().unwrap_or_else(|e| e.into_inner());
             let sent = card.sent.lock().unwrap_or_else(|e| e.into_inner());
-            let mut skip: Vec<(usize, usize)> = dirty.iter().copied().filter(|&(a, b)| a < to && b > from).collect();
+            skip.extend(dirty.iter().copied().filter(|&(a, b)| a < to && b > from));
             sent.near(fetched_after, from, to, &mut skip);
-            skip
-        };
+        }
         // The exclusion snapshot is shared by all pieces in this run.
-        skip.sort_unstable();
-        let mut parts = Vec::new();
+        join_exclusions(&mut skip);
         let mut put = 0;
         for &(lo, hi, now) in pieces {
             if lo >= hi || hi > self.len as usize {
                 continue;
             }
             parts.clear();
-            outside_sorted(lo, hi, &skip, |from, to| parts.push((from - lo, to - lo)));
+            let first = skip.partition_point(|span| span.1 <= lo);
+            outside_sorted(lo, hi, &skip[first..], |from, to| parts.push((from - lo, to - lo)));
             // SAFETY: inside the mapping (checked above), in a range
             // declared and not done with, which no refresh writes; the
             // title's bytes are kept out by the lock; the caller's.
@@ -4560,6 +4592,8 @@ impl Shadow {
             }
             put += merged;
         }
+        notes.exclusions = skip;
+        notes.piece_ranges = parts;
         put
     }
 

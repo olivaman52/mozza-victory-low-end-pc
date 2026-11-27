@@ -488,6 +488,9 @@ pub(crate) struct Notes {
     /// Per piece put beside the guards, all of it: its 64 KiB block and the
     /// copy it was landed through (which the job holds until the flush).
     landed: Vec<(usize, *const crate::shadow::Shadow)>,
+    /// Buffers reused across runs of card-backed pieces in the same job.
+    pub(crate) exclusions: Vec<(usize, usize)>,
+    pub(crate) piece_ranges: Vec<(usize, usize)>,
 }
 
 // SAFETY: the pointers are used by the job that has the notes, in `flush`.
