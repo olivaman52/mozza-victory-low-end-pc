@@ -119,10 +119,12 @@ fn ordered_pieces_hold_the_same_bytes() {
             }
         }
         let cut: Vec<(usize, usize)> = out.iter().map(|&(_, at, len)| (at, len)).collect();
-        let jobs = jobs(&cut);
-        assert_eq!(jobs.iter().cloned().flatten().collect::<Vec<_>>(), (0..cut.len()).collect::<Vec<_>>());
-        for w in jobs.windows(2) {
-            assert_ne!(cut[w[0].end - 1].0 / BLOCK, cut[w[1].start].0 / BLOCK);
+        for target in [64, 128, JOB_KIB, 512, 1024] {
+            let jobs = jobs_with_target(&cut, target << 10);
+            assert_eq!(jobs.iter().cloned().flatten().collect::<Vec<_>>(), (0..cut.len()).collect::<Vec<_>>());
+            for w in jobs.windows(2) {
+                assert_ne!(cut[w[0].end - 1].0 / BLOCK, cut[w[1].start].0 / BLOCK);
+            }
         }
     }
 }

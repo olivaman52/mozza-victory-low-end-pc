@@ -39,8 +39,18 @@ pub(crate) mod readback_trace;
 pub(crate) const BLOCK: usize = 64 << 10;
 /// The unit title memory is there or not in.
 const PAGE: usize = 4096;
-/// About this many bytes to a job.
-const JOB: usize = 256 << 10;
+/// Default target size for one job.
+const JOB_KIB: usize = 256;
+
+fn job_bytes() -> usize {
+    static BYTES: OnceLock<usize> = OnceLock::new();
+    *BYTES.get_or_init(|| {
+        std::env::var("VICTORY_LAND_JOB_KB").ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|value| (64..=1024).contains(value))
+            .unwrap_or(JOB_KIB) << 10
+    })
+}
 
 /// See the file.
 pub(crate) fn on() -> bool {
@@ -394,14 +404,18 @@ pub(crate) fn ordered(pieces: &[Piece]) -> Vec<(usize, usize, usize)> {
     out
 }
 
-/// Pieces (title address, bytes; in [`ordered`]'s order) as jobs: runs of
-/// about [`JOB`] bytes that end where a block ends.
+/// Pieces (title address, bytes; in [`ordered`]'s order) as jobs.
 pub(crate) fn jobs(pieces: &[(usize, usize)]) -> Vec<std::ops::Range<usize>> {
+    jobs_with_target(pieces, job_bytes())
+}
+
+/// Group about `target` bytes without splitting one guest memory block.
+fn jobs_with_target(pieces: &[(usize, usize)], target: usize) -> Vec<std::ops::Range<usize>> {
     let mut out: Vec<std::ops::Range<usize>> = Vec::new();
     let (mut from, mut bytes) = (0, 0);
     for (i, &(at, len)) in pieces.iter().enumerate() {
         let new_block = i == 0 || pieces[i - 1].0 / BLOCK != at / BLOCK;
-        if bytes >= JOB && new_block {
+        if bytes >= target && new_block {
             out.push(from..i);
             (from, bytes) = (i, 0);
         }
