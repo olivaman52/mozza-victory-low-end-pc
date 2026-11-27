@@ -220,6 +220,9 @@ pub(crate) struct HostHeap {
     /// Conservative membership in `placed`, updated under the lock for
     /// each descriptor slot. A stale entry can only cost an extra lock.
     placed_slots: Option<Slots>,
+    /// Persistent shader-address directory views. The heap owns the run until
+    /// it is destroyed. The pair is the run base and initialized copy count.
+    address_views: Mutex<Option<(u32, usize)>>,
 }
 
 /// The spans of every view heap made ([`HostHeap::placed`]), for the
@@ -1663,6 +1666,7 @@ impl HostHeap {
                 spans
             },
             placed_slots: (!sampler && spans_quick()).then(|| Slots::new(count as usize)),
+            address_views: Mutex::default(),
         };
         // A slot never written is undefined: shaders reading one (a slot
         // the title wrote in a way we do not know, or a table entry no
@@ -1748,6 +1752,28 @@ fn null_sampler(at: D3D12_CPU_DESCRIPTOR_HANDLE) {
 }
 
 impl HostHeap {
+    /// Reserves one fixed-size run for the address directory, initializing the
+    /// newly numbered resource views. The caller retains the referenced copies.
+    pub(crate) fn address_views(&self, slots: u32, copies: &[std::sync::Arc<crate::shadow::Shadow>]) -> Option<u32> {
+        debug_assert!(copies.len() < slots as usize);
+        let mut views = self.address_views.lock().unwrap_or_else(|e| e.into_inner());
+        let (base, made) = match *views {
+            Some(run) => run,
+            None => {
+                let base = self.dynamic(slots)?;
+                for n in 0..slots {
+                    self.null_raw_uav_at(base + n);
+                }
+                (base, 0)
+            }
+        };
+        for (n, copy) in copies.iter().enumerate().skip(made) {
+            self.raw_uav_at(base + 1 + n as u32, &copy.buffer, 0, copy.span().1);
+        }
+        *views = Some((base, copies.len()));
+        Some(base)
+    }
+
     /// `n` consecutive free dynamic slots (view heaps only), taken until
     /// [`HostHeap::release`]: the first's index.
     pub(crate) fn dynamic(&self, n: u32) -> Option<u32> {
@@ -4904,6 +4930,21 @@ fn null_view(at: D3D12_CPU_DESCRIPTOR_HANDLE) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn address_directory_slots_are_reserved_by_each_view_heap() {
+        let Some(first) = HostHeap::new(false, 8) else { return };
+        let first_base = first.address_views(4, &[]).expect("first heap has room");
+        assert_eq!(first.address_views(4, &[]), Some(first_base));
+        drop(first);
+
+        let second = HostHeap::new(false, 8).expect("a new view heap");
+        let other_table = second.dynamic(4).expect("second heap has room");
+        assert_eq!(other_table, first_base);
+        let second_base = second.address_views(4, &[]).expect("second heap has room for a directory");
+        assert_eq!(second_base, other_table + 4);
+        assert_eq!(second.address_views(4, &[]), Some(second_base));
+    }
 
     #[test]
     fn placed_slot_marks_preserve_neighbours_and_unknown_slots() {

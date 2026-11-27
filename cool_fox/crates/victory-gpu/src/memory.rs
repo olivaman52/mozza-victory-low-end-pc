@@ -171,9 +171,6 @@ struct Memory {
     open: std::collections::HashSet<usize>,
     /// Pages taken from faults.
     faulted: usize,
-    /// Per host view heap (by address): the first slot of its run, and how
-    /// many copies have their view there.
-    heaps: HashMap<usize, (u32, u32)>,
     /// The frame the faults were last read in.
     frame: u64,
     /// Pages asked for this frame that are not the title's memory.
@@ -250,7 +247,6 @@ impl Memory {
             free: Vec::new(),
             open: Default::default(),
             faulted: 0,
-            heaps: HashMap::new(),
             frame: u64::MAX,
             refused: Default::default(),
             stats: Stats::default(),
@@ -796,6 +792,19 @@ impl Memory {
 /// A list with this key ([`HostList::used`]) asks the builder for sizes.
 const SIZES: usize = usize::MAX - (9 << 33);
 
+enum AddressUse {
+    OpenForWrites = 3,
+    PublishResults = 4,
+}
+
+/// Put each full guest byte address in a separate list-key namespace.
+/// The address directory covers 2^37 bytes. The keys for other work in
+/// this module sit closer to `usize::MAX` than either of these ranges.
+fn address_use_key(kind: AddressUse, address: u64) -> Option<usize> {
+    (address < (u64::from(MEMORY_PAGES) - 1) * PAGE)
+        .then(|| usize::MAX - ((kind as usize) << 38) - address as usize)
+}
+
 /// Whether a submission that asks for the sizes of structures is waited for,
 /// and landed, before the title goes on (`VICTORY_BVH_SIZES_WAIT=1`; off).
 ///
@@ -986,11 +995,14 @@ pub(crate) fn ready(
             });
             m.bring_up(list);
         }
-        if builds && written.contains(&at) && list.first_use(usize::MAX - (4 << 33) - (at >> 2 & 0x7FFF_FFFF) as usize) {
+        if builds
+            && written.contains(&at)
+            && address_use_key(AddressUse::OpenForWrites, at).is_some_and(|key| list.first_use(key))
+        {
             if let Some((start, len)) = crate::shadow::in_buffer(at, 1)
                 && len <= BACK
                 && use_ == (Use::Builds { back: true })
-                && list.first_use(usize::MAX - (5 << 33) - (start >> 2 & 0x7FFF_FFFF) as usize)
+                && address_use_key(AddressUse::PublishResults, start).is_some_and(|key| list.first_use(key))
             {
                 m.small(list, start, len);
             }
@@ -1025,24 +1037,7 @@ pub(crate) fn ready(
     for (sum, n) in m.stats.came.iter_mut().zip(came) {
         *sum += n;
     }
-    let key = std::ptr::from_ref(heap) as usize;
-    let (base, made) = match m.heaps.get(&key) {
-        Some(&run) => run,
-        None => {
-            // Held for the heap's life: not given back with a list's slots.
-            let base = heap.dynamic(COPIES + 1)?;
-            // Every slot of the run: a number shows no view of another kind.
-            for n in 0..=COPIES {
-                heap.null_raw_uav_at(base + n);
-            }
-            (base, 0)
-        }
-    };
-    for (n, shadow) in m.copies.iter().enumerate().skip(made as usize) {
-        let (_, len) = shadow.span();
-        heap.raw_uav_at(base + 1 + n as u32, &shadow.buffer, 0, len);
-    }
-    m.heaps.insert(key, (base, m.copies.len() as u32));
+    let base = heap.address_views(COPIES + 1, &m.copies)?;
     // Every copy by every list that has come to by-address memory, whoever
     // numbered it: an arena another list made while this one was being
     // recorded was brought up to date by that list's submission alone, which
@@ -1276,6 +1271,144 @@ mod dump {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A linked record at head points to a payload in a different guest page.
+    // Both passes use the actual directory and the descriptor run from ready.
+    const ADDRESS_ROUND_TRIP: &str = r#"
+#define RS "SRV(t0), DescriptorTable(UAV(u0, numDescriptors=4096)), RootConstants(num32BitConstants=5, b0)"
+ByteAddressBuffer Directory : register(t0);
+RWByteAddressBuffer Copies[4096] : register(u0);
+cbuffer State : register(b0) {
+    uint2 head;
+    uint2 destination;
+    uint producing;
+};
+uint2 locate(uint2 address) {
+    uint page = (address.x >> 16) | (address.y << 16);
+    uint2 entry = Directory.Load2(page * 8);
+    return uint2(entry.x & 0x7fffffffu, entry.y + (address.x & 0xffffu));
+}
+[RootSignature(RS)]
+[numthreads(1,1,1)]
+void main() {
+    uint2 here = locate(head);
+    if (producing != 0) {
+        uint next = head.x + 65536u;
+        uint2 pointer = uint2(next, head.y + uint(next < head.x));
+        uint2 there = locate(pointer);
+        Copies[here.x].Store2(here.y, pointer);
+        Copies[there.x].Store(there.y, 0x5ca1ab1eu);
+    } else {
+        uint2 pointer = Copies[here.x].Load2(here.y);
+        uint2 there = locate(pointer);
+        uint payload = Copies[there.x].Load(there.y);
+        uint2 dest = locate(destination);
+        Copies[dest.x].Store2(dest.y, uint2(payload, pointer.x - head.x));
+    }
+}
+"#;
+
+    fn address_round_trip_pipeline(host: &crate::host::Host) -> (ID3D12RootSignature, ID3D12PipelineState) {
+        use windows::Win32::Graphics::Direct3D::{Fxc::D3DCompile, ID3DBlob};
+        use windows::core::s;
+
+        let mut code: Option<ID3DBlob> = None;
+        // SAFETY: the source and strings live through the compile. The
+        // root and bytecode live through the pipeline creation call.
+        unsafe {
+            D3DCompile(
+                ADDRESS_ROUND_TRIP.as_ptr().cast(), ADDRESS_ROUND_TRIP.len(), s!("address_round_trip"),
+                None, None, s!("main"), s!("cs_5_1"), 0, 0, &mut code, None,
+            ).expect("compile the address round trip");
+            let code = code.unwrap();
+            let bytes = std::slice::from_raw_parts(code.GetBufferPointer().cast::<u8>(), code.GetBufferSize());
+            let root: ID3D12RootSignature = host.device.CreateRootSignature(0, bytes).unwrap();
+            let pipeline = host.device.CreateComputePipelineState(&D3D12_COMPUTE_PIPELINE_STATE_DESC {
+                pRootSignature: std::mem::transmute_copy(&root),
+                CS: D3D12_SHADER_BYTECODE { pShaderBytecode: bytes.as_ptr().cast(), BytecodeLength: bytes.len() },
+                ..Default::default()
+            }).unwrap();
+            (root, pipeline)
+        }
+    }
+
+    #[test]
+    fn address_directory_passes_a_gpu_written_pointer_to_a_consumer_and_publishes_its_result() {
+        let Some(host) = host() else {
+            eprintln!("no D3D12 device for the runtime address fixture");
+            return;
+        };
+        if !crate::shadow::cards() || !host.card_ready() {
+            eprintln!("the runtime address fixture needs a card-backed allocator");
+            return;
+        }
+        let base = crate::upload::reserve(3 * PAGE as usize).expect("allocate write-watched guest pages") as u64;
+        // The global address directory retains this allocation for the life
+        // of the test process. No other test is issued its address.
+        let head = base + 0x100;
+        let result = base + 2 * PAGE + 0x100;
+        crate::shadow::register(result as usize, result, 8);
+        let heap = HostHeap::new(false, 8).expect("allocate view heap");
+        let (root, pipeline) = address_round_trip_pipeline(host);
+        let sentinel = 0xfeed_beefu32;
+        let result_words = result as *mut u32;
+        // SAFETY: all four dwords lie inside the freshly reserved third page.
+        unsafe {
+            for offset in -1..=2 {
+                result_words.offset(offset).write_volatile(sentinel);
+            }
+        }
+        let _ = host.log_messages();
+        for producing in [true, false] {
+            let list = host.new_list().expect("allocate a list");
+            let read = [head, result];
+            let writes = [if producing { head } else { result }];
+            let binding = ready(&list, &heap, &read, &writes, &[], Use::Builds { back: !producing }, Some([1, 1, 1]))
+                .expect("prepare address directory and its copies");
+            let constants = [head as u32, (head >> 32) as u32, result as u32, (result >> 32) as u32, u32::from(producing)];
+            // SAFETY: the list is open, heap and buffers stay live through
+            // execution, and the root arguments match the compiled shader.
+            unsafe {
+                let mut table = heap.heap.GetGPUDescriptorHandleForHeapStart();
+                let stride = host.device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                table.ptr += u64::from(binding.base) * u64::from(stride);
+                list.list.SetDescriptorHeaps(&[Some(heap.heap.clone())]);
+                list.list.SetComputeRootSignature(&root);
+                list.list.SetPipelineState(&pipeline);
+                list.list.SetComputeRootShaderResourceView(0, binding.directory);
+                list.list.SetComputeRootDescriptorTable(1, table);
+                list.list.SetComputeRoot32BitConstants(2, 5, constants.as_ptr().cast(), 0);
+                list.list.Dispatch(1, 1, 1);
+                list.list.ResourceBarrier(&[D3D12_RESOURCE_BARRIER {
+                    Type: D3D12_RESOURCE_BARRIER_TYPE_UAV,
+                    ..Default::default()
+                }]);
+            }
+            list.close();
+            host.execute(&[&list]);
+            assert_eq!(host.log_messages(), None, "validation error in runtime address round trip");
+            // SAFETY: the producer was fenced. Its private node backing is
+            // GPU-resident and shouldn't publish to this guest allocation.
+            assert_eq!(unsafe { (head as *const u64).read_volatile() }, 0);
+        }
+        // SAFETY: both lists finished, and the result page remains allocated.
+        let output = unsafe { std::array::from_fn::<_, 4, _>(|i| result_words.offset(i as isize - 1).read_volatile()) };
+        assert_eq!(output, [sentinel, 0x5ca1ab1e, PAGE as u32, sentinel]);
+        crate::shadow::unregister(result as usize, result);
+    }
+
+    #[test]
+    fn by_address_list_uses_keep_all_guest_address_bits() {
+        let low = 0x1_0001_0000;
+        let high = low + (8 << 30);
+        assert_ne!(address_use_key(AddressUse::OpenForWrites, low), address_use_key(AddressUse::OpenForWrites, high));
+        assert_ne!(
+            address_use_key(AddressUse::PublishResults, low),
+            address_use_key(AddressUse::PublishResults, high),
+        );
+        assert_ne!(address_use_key(AddressUse::OpenForWrites, high), address_use_key(AddressUse::PublishResults, high));
+        assert!(address_use_key(AddressUse::OpenForWrites, (u64::from(MEMORY_PAGES) - 1) * PAGE).is_none());
+    }
 
     #[test]
     fn a_piece_takes_what_changed() {
