@@ -1271,6 +1271,72 @@ mod dump {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_FLAGS, IDXGIAdapter1, IDXGIFactory4,
+    };
+    use windows::core::Interface;
+
+    // The test is run alone. Capture errors independently of the runtime's
+    // synchronous submit, which drains its own debug queue before returning.
+    static FIRST_VALIDATION_ERROR: std::sync::Mutex<Option<(i32, String)>> = std::sync::Mutex::new(None);
+
+    unsafe extern "system" fn validation_message(
+        _: D3D12_MESSAGE_CATEGORY,
+        severity: D3D12_MESSAGE_SEVERITY,
+        id: D3D12_MESSAGE_ID,
+        description: windows::core::PCSTR,
+        _: *mut std::ffi::c_void,
+    ) {
+        if severity.0 <= D3D12_MESSAGE_SEVERITY_ERROR.0 {
+            let mut first = FIRST_VALIDATION_ERROR.lock().unwrap_or_else(|e| e.into_inner());
+            if first.is_none() {
+                // SAFETY: the debug queue supplies a NUL-terminated description
+                // valid for the duration of this callback, or a null pointer.
+                let message = if description.is_null() {
+                    String::new()
+                } else {
+                    unsafe { std::ffi::CStr::from_ptr(description.0.cast()) }.to_string_lossy().into_owned()
+                };
+                *first = Some((id.0, message));
+            }
+        }
+    }
+
+    struct ValidationCapture {
+        queue: ID3D12InfoQueue1,
+        registration: u32,
+    }
+
+    impl Drop for ValidationCapture {
+        fn drop(&mut self) {
+            // SAFETY: this is the registration returned by this queue.
+            let _ = unsafe { self.queue.UnregisterMessageCallback(self.registration) };
+        }
+    }
+
+    fn attach_validation_capture(device: &ID3D12Device) -> ValidationCapture {
+        let queue = device.cast::<ID3D12InfoQueue1>().expect("debug device supplies its callback info queue");
+        let mut registration = 0;
+        // SAFETY: the callback owns no caller state and the registration's
+        // output points to storage for that registration.
+        unsafe {
+            queue.RegisterMessageCallback(
+                Some(validation_message),
+                D3D12_MESSAGE_CALLBACK_IGNORE_FILTERS,
+                std::ptr::null_mut(),
+                &mut registration,
+            )
+        }.expect("register validation callback");
+        ValidationCapture { queue, registration }
+    }
+
+    fn require_default_heap(resource: &ID3D12Resource, name: &str) {
+        let mut properties = D3D12_HEAP_PROPERTIES::default();
+        // SAFETY: a live resource and valid output storage.
+        unsafe { resource.GetHeapProperties(Some(&mut properties), None) }.expect("query fixture buffer's heap");
+        eprintln!("runtime address fixture: {name} heap_type={:?}", properties.Type);
+        assert_eq!(properties.Type, D3D12_HEAP_TYPE_DEFAULT, "{name} uses the card-backed default heap");
+    }
 
     // A linked record at head points to a payload in a different guest page.
     // Both passes use the actual directory and the descriptor run from ready.
@@ -1333,15 +1399,40 @@ void main() {
     }
 
     #[test]
+    #[ignore = "requires a hardware D3D12 adapter and device-local backing; run this test alone with --ignored --nocapture"]
     fn address_directory_passes_a_gpu_written_pointer_to_a_consumer_and_publishes_its_result() {
-        let Some(host) = host() else {
-            eprintln!("no D3D12 device for the runtime address fixture");
-            return;
-        };
-        if !crate::shadow::cards() || !host.card_ready() {
-            eprintln!("the runtime address fixture needs a card-backed allocator");
-            return;
+        let debug_requested = crate::switch::on("VICTORY_D3D12_DEBUG");
+        let gbv_requested = crate::switch::on("VICTORY_D3D12_GBV");
+        assert!(!debug_requested || cfg!(feature = "diagnostics"), "debug validation requires a diagnostics build");
+        assert!(!gbv_requested || debug_requested, "GPU-based validation requires the debug layer");
+        if gbv_requested {
+            let mut debug = None::<ID3D12Debug>;
+            // SAFETY: a query with valid storage before host creates the device.
+            unsafe { D3D12GetDebugInterface(&mut debug) }.expect("D3D12 debug controller");
+            debug.expect("D3D12 debug controller").cast::<ID3D12Debug1>().expect("GPU-based validation controller");
         }
+        let host = host().expect("create the runtime D3D12 device");
+        let (adapter, description, debug_active) = {
+            // SAFETY: normal queries on the already initialized host device.
+            unsafe {
+                let factory: IDXGIFactory4 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0)).expect("create DXGI factory");
+                let adapter: IDXGIAdapter1 = factory.EnumAdapterByLuid(host.device.GetAdapterLuid()).expect("resolve the test's adapter");
+                let description = adapter.GetDesc1().expect("query adapter description");
+                let name = String::from_utf16_lossy(&description.Description);
+                (name.trim_end_matches('\0').to_owned(), description, host.device.cast::<ID3D12DebugDevice>().is_ok())
+            }
+        };
+        eprintln!(
+            "runtime address fixture: adapter={adapter:?} vendor={:#06x} device={:#06x} debug_requested={debug_requested} debug_active={debug_active} gbv_requested={gbv_requested} gbv_status_getter=unavailable",
+            description.VendorId, description.DeviceId,
+        );
+        assert_eq!(description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32, 0, "a hardware adapter is required");
+        assert!(!debug_requested || debug_active, "debug-layer activation must be observable on the device");
+        eprintln!("runtime address fixture: OPTIONS19 view/sampler heap limits={:?}", host.options19()
+            .map(|o| (o.MaxViewDescriptorHeapSize, o.MaxSamplerDescriptorHeapSize)));
+        let _validation = debug_active.then(|| attach_validation_capture(&host.device));
+        assert!(crate::shadow::cards() && host.card_ready(), "the hardware fixture needs the card-backed allocator");
+
         let base = crate::upload::reserve(3 * PAGE as usize).expect("allocate write-watched guest pages") as u64;
         // The global address directory retains this allocation for the life
         // of the test process. No other test is issued its address.
@@ -1358,13 +1449,22 @@ void main() {
                 result_words.offset(offset).write_volatile(sentinel);
             }
         }
-        let _ = host.log_messages();
         for producing in [true, false] {
+            let stage = if producing { "producer" } else { "consumer" };
             let list = host.new_list().expect("allocate a list");
             let read = [head, result];
             let writes = [if producing { head } else { result }];
             let binding = ready(&list, &heap, &read, &writes, &[], Use::Builds { back: !producing }, Some([1, 1, 1]))
                 .expect("prepare address directory and its copies");
+            if producing {
+                let memory = MEMORY.lock().unwrap();
+                let memory = memory.as_ref().unwrap();
+                require_default_heap(&memory.directory.1.buffer, "address directory");
+                for (name, address) in [("node head", head), ("node payload", head + PAGE), ("result", result)] {
+                    let copy = memory.copy_of(address / PAGE).expect("fixture's guest page is in the directory");
+                    require_default_heap(&memory.copies[copy].buffer, name);
+                }
+            }
             let constants = [head as u32, (head >> 32) as u32, result as u32, (result >> 32) as u32, u32::from(producing)];
             // SAFETY: the list is open, heap and buffers stay live through
             // execution, and the root arguments match the compiled shader.
@@ -1386,14 +1486,27 @@ void main() {
             }
             list.close();
             host.execute(&[&list]);
-            assert_eq!(host.log_messages(), None, "validation error in runtime address round trip");
-            // SAFETY: the producer was fenced. Its private node backing is
-            // GPU-resident and shouldn't publish to this guest allocation.
-            assert_eq!(unsafe { (head as *const u64).read_volatile() }, 0);
+            // SAFETY: plain device status query after the synchronous host
+            // submission, and volatile reads of the reserved guest pages.
+            unsafe {
+                host.device.GetDeviceRemovedReason().expect("device stayed live through the dispatch");
+                assert_eq!((head as *const u64).read_volatile(), 0, "node pointer remains on the GPU");
+                assert_eq!(((head + PAGE) as *const u32).read_volatile(), 0, "node payload remains on the GPU");
+                if producing {
+                    assert_eq!(result_words.read_volatile(), sentinel, "producer did not publish the consumer's result");
+                    assert_eq!(result_words.add(1).read_volatile(), sentinel, "producer left the second result word untouched");
+                }
+            }
+            if let Some((id, message)) = FIRST_VALIDATION_ERROR.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                panic!("D3D12 validation error after {stage}, message {id}: {message}");
+            }
+            eprintln!("runtime address fixture: {stage} dispatch completed through the synchronous host submission");
         }
         // SAFETY: both lists finished, and the result page remains allocated.
         let output = unsafe { std::array::from_fn::<_, 4, _>(|i| result_words.offset(i as isize - 1).read_volatile()) };
-        assert_eq!(output, [sentinel, 0x5ca1ab1e, PAGE as u32, sentinel]);
+        let expected = [sentinel, 0x5ca1ab1e, PAGE as u32, sentinel];
+        eprintln!("runtime address fixture: output={output:08x?} expected={expected:08x?}");
+        assert_eq!(output, expected);
         crate::shadow::unregister(result as usize, result);
     }
 

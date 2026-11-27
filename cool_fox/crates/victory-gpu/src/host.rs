@@ -57,6 +57,7 @@ pub(crate) struct Host {
     /// The adapter the device is on, for its memory budget
     /// ([`Host::video_memory`]); `None` if the system does not name it.
     adapter: Option<IDXGIAdapter3>,
+    options19: OnceLock<Option<D3D12_FEATURE_DATA_D3D12_OPTIONS19>>,
     /// 1-descriptor shader-visible fallback heaps bound when a command list
     /// omits a view or sampler heap while using directly-indexed root signatures.
     fallback_view: OnceLock<Option<ID3D12DescriptorHeap>>,
@@ -1089,6 +1090,7 @@ fn create() -> windows::core::Result<Host> {
             next_rtv: AtomicU32::new(0),
             presenter: Mutex::new(None),
             adapter,
+            options19: OnceLock::new(),
             fallback_view: OnceLock::new(),
             fallback_sampler: OnceLock::new(),
         })
@@ -1096,6 +1098,20 @@ fn create() -> windows::core::Result<Host> {
 }
 
 impl Host {
+    pub(crate) fn options19(&self) -> Option<&D3D12_FEATURE_DATA_D3D12_OPTIONS19> {
+        self.options19.get_or_init(|| {
+            let mut options = D3D12_FEATURE_DATA_D3D12_OPTIONS19::default();
+            // SAFETY: the feature query receives the corresponding structure and size.
+            unsafe {
+                self.device.CheckFeatureSupport(
+                    D3D12_FEATURE_D3D12_OPTIONS19,
+                    (&raw mut options).cast(),
+                    size_of_val(&options) as u32,
+                )
+            }.ok().map(|()| options)
+        }).as_ref()
+    }
+
     /// The driver's version, as the system counts it (0: not known).
     pub(crate) fn driver(&self) -> i64 {
         let adapter = self.adapter.as_ref();

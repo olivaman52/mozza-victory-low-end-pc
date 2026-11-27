@@ -1469,7 +1469,17 @@ pub(crate) fn probe_view_limit() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         let Some(host) = host() else { return };
+        let reported = host.options19();
+        // OPTIONS19 returns a portable default on legacy drivers, some of
+        // which still accept larger Tier 3 heaps. The new driver contract
+        // reports at least 4,000 sampler slots and the actual view cap.
+        let reported_limit = reported
+            .filter(|o| o.MaxSamplerDescriptorHeapSize >= 4_000 || o.MaxViewDescriptorHeapSize > PORTABLE_VIEWS)
+            .map(|o| o.MaxViewDescriptorHeapSize);
         let fits = |count: u32| {
+            if reported_limit.is_some_and(|limit| count > limit) {
+                return false;
+            }
             // SAFETY: plain heap creation; the heap is released at once.
             let made: windows::core::Result<ID3D12DescriptorHeap> = unsafe {
                 host.device
@@ -1497,6 +1507,8 @@ pub(crate) fn probe_view_limit() {
         tracing::info!(
             views,
             raw_twins = twins,
+            reported_view_limit = ?reported.map(|o| o.MaxViewDescriptorHeapSize),
+            reported_sampler_limit = ?reported.map(|o| o.MaxSamplerDescriptorHeapSize),
             "host view heaps hold {views} views; view indices are clamped to the null slot at the end from the first shader on"
         );
         victory_shader::emit::set_view_heap_limit(views - 1);
