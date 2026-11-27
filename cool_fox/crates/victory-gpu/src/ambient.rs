@@ -28,6 +28,8 @@
 //! - a number: that share of the estimate (1: all of it).
 //! - `constant:<level>`: the constant, as beloooo's fork has it.
 //!
+//! `VICTORY_AMBIENT_MOST` caps the light kept from the title's probes
+//! as a multiple of the estimated light (default 4).
 //! `VICTORY_AMBIENT_SHADE=<strength>,<radius in metres>` sets the creases.
 //!
 //! The air of a room is lit by the same probes: without rays they hold the
@@ -100,6 +102,15 @@ fn set() -> Set {
 /// Whether the stand-in is on: set, and the title's rays find nothing.
 pub(crate) fn on() -> bool {
     set() != Set::Off && !crate::pipeline::builder_runs()
+}
+
+/// How much of the title's probe result can survive the indirect-light correction.
+fn most() -> f32 {
+    static SET: OnceLock<f32> = OnceLock::new();
+    *SET.get_or_init(|| {
+        let value = std::env::var("VICTORY_AMBIENT_MOST").unwrap_or_default();
+        value.trim().parse().ok().filter(|v: &f32| v.is_finite() && *v > 0.0).unwrap_or(4.0)
+    })
 }
 
 /// The most the air scatters, as a multiple of the light around
@@ -459,7 +470,7 @@ pub(crate) fn after(list: &HostList, role: Role, views: &Views) -> bool {
     words[6] = views.size[0];
     words[7] = views.size[1];
     words[8] = 0.04f32.to_bits();
-    words[9] = 4.0f32.to_bits();
+    words[9] = most().to_bits();
     words[10] = air().to_bits();
     let l = &list.list;
     // SAFETY: an open list with the heap of the views set; the title's
