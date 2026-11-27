@@ -320,6 +320,11 @@ pub(crate) fn sync_heaps() {
         // Capped host heaps have no counterparts for the title slots reserved
         // for per-draw tables; raw writes there must not be mirrored.
         let mirrored_count = heap.desc.count.min(host.count());
+        let read_end = if clip_sync_reads() {
+            end.min(start + step * u64::from(mirrored_count))
+        } else {
+            end
+        } as usize;
         // The records of some frames ago that no draw read through a table
         // since: a shader may pick them by index.
         let before = host.copied_before(frame);
@@ -343,7 +348,7 @@ pub(crate) fn sync_heaps() {
         let taken = written.take(start as usize, end as usize);
         spent[0] += since(began);
         let mut parts: Vec<(usize, usize)> = Vec::new();
-        for (range_from, range_end) in taken {
+        for (range_from, range_end) in taken.into_iter().filter_map(|range| limit_changed_range(range, read_end)) {
             let mut page = range_from & !(crate::watch::PAGE - 1);
             while page < range_end {
                 parts.push((page.max(range_from), (page + crate::watch::PAGE).min(range_end)));
@@ -473,6 +478,20 @@ pub(crate) fn sync_heaps() {
     for (count, n) in SYNCED_KINDS.iter().zip(kinds) {
         count.fetch_add(n, Relaxed);
     }
+}
+
+#[cfg(windows)]
+fn clip_sync_reads() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| crate::switch::on("VICTORY_HEAP_CLIP_READS"))
+}
+
+/// Clip the CPU read after querying the journal. Deferred draws and
+/// write-watch still see the same guest writes and allocations.
+#[cfg(windows)]
+fn limit_changed_range((from, to): (usize, usize), read_end: usize) -> Option<(usize, usize)> {
+    let to = to.min(read_end);
+    (from < to).then_some((from, to))
 }
 
 /// Of those mirrored, since the last frame line: no view, a view of an object,
@@ -1586,6 +1605,24 @@ mod tests {
             ),
             5..5
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn clipped_guest_reads_keep_all_complete_mirrored_records() {
+        for step in [16usize, 32] {
+            let start = 0x1000;
+            let end = start + 5 * step;
+            let range = (start + 2 * step + 3, start + 7 * step);
+            assert_eq!(limit_changed_range(range, end), Some((range.0, end)));
+            let (lo, hi) = limit_changed_range(range, end).unwrap();
+            let slots = changed_slots(lo, hi, start, step as u64, 5);
+            let first = (lo - start).div_ceil(step);
+            assert_eq!(first..slots.end as usize, 3..5);
+            assert_eq!(hi - start, 5 * step);
+            assert_eq!(limit_changed_range((end, end + step), end), None);
+            assert_eq!(limit_changed_range((start, start + step), end), Some((start, start + step)));
+        }
     }
 
     #[test]

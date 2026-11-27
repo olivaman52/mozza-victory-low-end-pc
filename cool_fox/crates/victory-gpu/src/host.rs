@@ -8853,6 +8853,8 @@ struct Meter {
     raw_frame_intervals: bool,
     #[cfg(feature = "diagnostics")]
     present_results: PresentResults,
+    #[cfg(feature = "diagnostics")]
+    dispatched: u64,
     drawn: u64,
     logged: std::time::Instant,
     /// The caption the window had, once read.
@@ -8910,6 +8912,8 @@ impl Meter {
             raw_frame_intervals: crate::switch::on("VICTORY_RAW_FRAME_INTERVALS"),
             #[cfg(feature = "diagnostics")]
             present_results: PresentResults::default(),
+            #[cfg(feature = "diagnostics")]
+            dispatched: crate::draw::dispatched(),
             drawn: crate::draw::drawn(),
             logged: now,
             caption: None,
@@ -8965,6 +8969,11 @@ impl Meter {
         let fps = frames / elapsed.as_secs_f64();
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
         let draws = (drawn - self.drawn) as f64 / frames;
+        #[cfg(feature = "diagnostics")]
+        let host_dispatches = {
+            let dispatched = crate::draw::dispatched();
+            (dispatched - std::mem::replace(&mut self.dispatched, dispatched)) as f64 / frames
+        };
         (self.since, self.frames, self.drawn) = (std::time::Instant::now(), 0, drawn);
         // Of a frame, ms preparing submissions and ms waiting for the GPU.
         let [cpu, gpu] = [0, 1].map(|i| {
@@ -8999,6 +9008,7 @@ impl Meter {
                     readback_ms = back_ms,
                     readback_mb = back_mb,
                     draws,
+                    host_dispatches,
                     missing_pipeline_draws = dropped,
                     dropped_indirect = indirect,
                     compiling_pipelines = crate::pipeline::making(),

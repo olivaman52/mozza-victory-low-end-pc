@@ -40,11 +40,11 @@ try {
         if ($timestamp -lt $From -or $timestamp -ge $To) { continue }
         foreach ($pair in [regex]::Matches($values, '(\w+)=([-\d.eE+]+)')) {
             $key = $pair.Groups[1].Value
-            if ($key -in $fields) {
+            if ($key -in $fields -or $key -eq 'host_dispatches') {
                 $record[$key] = [double]::Parse($pair.Groups[2].Value, $culture)
             }
         }
-        if ($record.Count -ne $fields.Count + 1) { continue }
+        if ($record.Count - [int]$record.Contains('host_dispatches') -ne $fields.Count + 1) { continue }
         if ($Aggregate) {
             [double[]]$intervals = @()
             if ($null -ne $rawWindow) { $intervals = $rawWindow | ConvertFrom-Json -NoEnumerate }

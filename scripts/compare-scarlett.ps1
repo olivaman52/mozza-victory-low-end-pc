@@ -9,7 +9,10 @@ param(
     [switch]$RawFrameIntervals,
     [switch]$RenderDimensions,
     [switch]$ReadbackTrace,
-    [switch]$SpansQuick
+    [switch]$SpansQuick,
+    [switch]$DisableAmbientStandIn,
+    [switch]$ClipGuestDescriptorReads,
+    [ValidateRange(1,16)][int]$LandingThreads
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,8 +24,11 @@ if ($Cold -and (Test-Path -LiteralPath $Cache)) { throw "A cold run needs a fres
 if (-not $Cold -and -not (Test-Path -LiteralPath $Cache -PathType Container)) {
     throw "Warm cache not found: $Cache"
 }
-if (Get-Process -Name victory,victory_sm,victory-phase1-8999b80 -ErrorAction SilentlyContinue) {
-    throw 'Close the previous benchmark session before starting another.'
+if (Get-Process -Name 'victory*' -ErrorAction SilentlyContinue) {
+    throw 'A Victory session or test is already running.'
+}
+if (Get-Process -Name cargo,rustc,cl,link -ErrorAction SilentlyContinue) {
+    throw 'A compiler, linker, or Cargo test is already running.'
 }
 New-Item -ItemType Directory -Path $LogDirectory | Out-Null
 $settings = [ordered]@{
@@ -71,6 +77,11 @@ if ($RawFrameIntervals) { $settings.VICTORY_RAW_FRAME_INTERVALS = '1' }
 if ($RenderDimensions) { $settings.VICTORY_RENDER_DIMENSIONS = '1' }
 if ($ReadbackTrace) { $settings.VICTORY_READBACK_TRACE = '1' }
 if ($SpansQuick) { $settings.VICTORY_SPANS_QUICK = '1' }
+if ($DisableAmbientStandIn) { $settings.VICTORY_AMBIENT = '0' }
+if ($ClipGuestDescriptorReads) { $settings.VICTORY_HEAP_CLIP_READS = '1' }
+if ($PSBoundParameters.ContainsKey('LandingThreads')) {
+    $settings.VICTORY_LAND_THREADS = $LandingThreads.ToString([Globalization.CultureInfo]::InvariantCulture)
+}
 
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = $Exe
