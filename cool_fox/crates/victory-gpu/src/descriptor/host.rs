@@ -199,6 +199,7 @@ pub(crate) struct HostHeap {
     /// table; one a shader picks by a computed index is brought up to date
     /// from here ([`HostHeap::texture_slots_due`]).
     textures: Mutex<TextureQueue>,
+    queued_textures: Option<std::sync::Arc<Slots>>,
     /// Per title slot, the frame (plus one; 0: never) in which a draw last
     /// read it through a table, or made a table it lies in (with
     /// [`TABLED_READ`] set if the draw read it). The draw that
@@ -965,11 +966,17 @@ struct Waiting {
 #[derive(Default)]
 pub(crate) struct TextureQueue {
     slots: std::collections::BTreeMap<u32, Waiting>,
+    present: Option<std::sync::Arc<Slots>>,
     writes: u64,
     /// Slots held back because the card had no room for the host copy
     /// they need ([`TextureQueue::hold`]), each with the write it was
     /// held as.
     held: std::collections::BTreeMap<u32, u64>,
+}
+
+fn texture_queue_quick() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_TEXTURE_QUEUE_QUICK").is_some_and(|v| v == "1"))
 }
 
 impl TextureQueue {
@@ -983,11 +990,24 @@ impl TextureQueue {
         }
         self.writes += 1;
         let write = self.writes;
-        self.slots.insert(index, Waiting { due, written: frame, write, looks: 0, mapped: 0, checked: (0, 0, 0, 0, 0) });
+        self.insert(index, Waiting { due, written: frame, write, looks: 0, mapped: 0, checked: (0, 0, 0, 0, 0) });
     }
 
-    fn remove(&mut self, index: u32) {
-        self.slots.remove(&index);
+    fn insert(&mut self, index: u32, waiting: Waiting) {
+        // Publish membership before insertion. An unlocked absence check
+        // either precedes that publication or takes the lock and sees it.
+        if let Some(present) = &self.present {
+            present.put(index);
+        }
+        self.slots.insert(index, waiting);
+    }
+
+    fn remove(&mut self, index: u32) -> bool {
+        let removed = self.slots.remove(&index).is_some();
+        if removed && let Some(present) = &self.present {
+            present.remove(index);
+        }
+        removed
     }
 
     /// Up to `max` slots due at `frame`, each with its write number, in
@@ -1051,7 +1071,7 @@ impl TextureQueue {
     /// Slot `index` is up to date: out of the queue until written again.
     fn done(&mut self, index: u32, write: u64) {
         if self.same(index, write).is_some() {
-            self.slots.remove(&index);
+            self.remove(index);
         }
     }
 
@@ -1129,7 +1149,7 @@ impl TextureQueue {
         self.writes += 1;
         let write = self.writes;
         let due = self.slots.get(&index).map_or(due, |w| w.due.min(due));
-        self.slots.insert(index, Waiting { due, written: frame, write, looks: 0, mapped: 0, checked: (0, 0, 0, 0, 0) });
+        self.insert(index, Waiting { due, written: frame, write, looks: 0, mapped: 0, checked: (0, 0, 0, 0, 0) });
     }
 
     /// Bytes of slot `index`'s memory that were mapped at its last upload
@@ -1636,6 +1656,7 @@ impl HostHeap {
                 Some((buffer, gpu, data as usize))
             })
             .flatten();
+        let queued_textures = (!sampler && texture_queue_quick()).then(|| std::sync::Arc::new(Slots::new(count as usize)));
         let h = HostHeap {
             buffer_sweep: Mutex::default(),
             buffer_frame: std::sync::atomic::AtomicU64::new(u64::MAX),
@@ -1663,7 +1684,8 @@ impl HostHeap {
             strides,
             buffers: Slots::new(count as usize),
             changed: Slots::new(count as usize),
-            textures: Mutex::default(),
+            textures: Mutex::new(TextureQueue { present: queued_textures.clone(), ..Default::default() }),
+            queued_textures,
             tabled: (0..if sampler { 0 } else { count })
                 .map(|_| std::sync::atomic::AtomicU32::new(0))
                 .collect(),
@@ -2664,9 +2686,9 @@ impl HostHeap {
         // Once per slot and frame: tables are read by every draw.
         if old != now | TABLED_READ {
             stamp.store(now | TABLED_READ, Relaxed);
-            if tabled_out() {
+            if tabled_out() && self.may_have_queued_texture(index) {
                 let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
-                if textures.slots.remove(&index).is_some() {
+                if textures.remove(index) {
                     TABLED_WRITES[1].fetch_add(1, Relaxed);
                 }
             }
@@ -2689,6 +2711,15 @@ impl HostHeap {
             .map_or(0, |s| s.load(std::sync::atomic::Ordering::Relaxed))
     }
 
+    fn may_have_queued_texture(&self, index: u32) -> bool {
+        let may_have = self.queued_textures.as_ref().is_none_or(|slots| slots.may_contain(index));
+        #[cfg(feature = "diagnostics")]
+        if !may_have {
+            crate::refresh_census::outcome(crate::refresh_census::Outcome::TextureQueueAlreadyClear);
+        }
+        may_have
+    }
+
     /// The queue's part of a write of title slot `index` in `frame`:
     /// `texture`, whether it now holds a view of a texture the title may
     /// fill; `seen` as for [`HostHeap::note_buffer`].
@@ -2701,7 +2732,6 @@ impl HostHeap {
         // Made now by a draw of this frame that read it through a table:
         // up to date.
         let read_now = seen && stamp == now | TABLED_READ;
-        let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
         if texture && !read_now {
             let due = if lately && !seen {
                 TABLED_WRITES[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -2709,9 +2739,9 @@ impl HostHeap {
             } else {
                 0
             };
-            textures.written(index, frame, due, seen);
-        } else {
-            textures.remove(index);
+            self.textures.lock().unwrap_or_else(|e| e.into_inner()).written(index, frame, due, seen);
+        } else if self.may_have_queued_texture(index) {
+            self.textures.lock().unwrap_or_else(|e| e.into_inner()).remove(index);
         }
     }
 
@@ -5540,6 +5570,62 @@ mod tests {
         assert_eq!(q.room(5), 1);
         assert!(q.due(5, 100).iter().any(|d| d.0 == 20));
         assert_eq!(q.room(6), 0);
+    }
+
+    #[test]
+    fn texture_queue_presence_tracks_rewrites_and_exact_completion() {
+        let present = std::sync::Arc::new(Slots::new(128));
+        let mut q = TextureQueue { present: Some(present.clone()), ..Default::default() };
+        let slot = 65;
+        assert!(!present.may_contain(slot));
+        assert!(present.may_contain(128), "outside the bitset must use the lock");
+        q.written(slot, 1, 0, false);
+        let initial = q.due(1, 1)[0].1;
+        assert!(present.may_contain(slot));
+        q.changed(slot, 2, 0);
+        let rewritten = q.due(2, 1)[0].1;
+        assert_ne!(rewritten, initial);
+        q.done(slot, initial);
+        assert!(present.may_contain(slot));
+        q.hold(slot, rewritten, 10);
+        assert!(present.may_contain(slot));
+        q.done(slot, rewritten);
+        assert!(!present.may_contain(slot));
+        q.changed(slot, 3, 0);
+        assert!(present.may_contain(slot));
+        assert!(q.remove(slot));
+        assert!(!present.may_contain(slot));
+        assert!(!q.remove(slot));
+        assert!(q.due(10, 1).is_empty());
+    }
+
+    #[test]
+    fn texture_queue_absence_allows_a_later_concurrent_remap() {
+        let present = std::sync::Arc::new(Slots::new(128));
+        let q = Mutex::new(TextureQueue { present: Some(present.clone()), ..Default::default() });
+        let slot = 65;
+        std::thread::scope(|scope| {
+            let (saw_empty, checked_empty) = std::sync::mpsc::sync_channel(0);
+            let (wrote, rewrite_visible) = std::sync::mpsc::sync_channel(0);
+            let q = &q;
+            let present = &present;
+            scope.spawn(move || {
+                checked_empty.recv().unwrap();
+                let mut q = q.lock().unwrap();
+                q.changed(slot, 2, 3);
+                drop(q);
+                wrote.send(()).unwrap();
+            });
+            assert!(!present.may_contain(slot));
+            saw_empty.send(()).unwrap();
+            rewrite_visible.recv().unwrap();
+            assert!(present.may_contain(slot));
+            let mut q = q.lock().unwrap();
+            assert!(q.due(2, 1).is_empty());
+            assert_eq!(q.due(3, 1)[0].0, slot);
+            assert!(q.remove(slot));
+            assert!(!present.may_contain(slot));
+        });
     }
 
     /// Textures of which only the smallest levels are held, packed into

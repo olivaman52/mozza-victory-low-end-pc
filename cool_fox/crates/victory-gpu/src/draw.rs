@@ -4693,14 +4693,42 @@ impl RecordHash {
     }
 }
 
+#[cfg(feature = "diagnostics")]
+fn sample_readable_lookup() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !crate::timeline::on() || !*ENABLED.get_or_init(|| {
+        std::env::var_os("VICTORY_TRACE_REFRESH_LOOKUP").is_some_and(|v| v == "1")
+    }) {
+        return false;
+    }
+    thread_local! { static READABLE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    READABLE.with(|counter| {
+        let n = counter.get().wrapping_add(1);
+        counter.set(n);
+        n.is_multiple_of(128)
+    })
+}
+
 fn readable(list: &HostList, kind: ResourceType, view: &View) {
     const UNORDERED_ACCESS: u32 = 0x8;
-    let placed = crate::descriptor::host::placed_texture(view);
+    #[cfg(feature = "diagnostics")]
+    let sample = sample_readable_lookup();
+    let (placed, copy) = {
+        #[cfg(feature = "diagnostics")]
+        let _sample = sample.then(|| crate::timeline::span("readable: sampled descriptor and buffer lookup"));
+        let placed = crate::descriptor::host::placed_texture(view);
+        let copy = crate::descriptor::host::buffer_copy(placed.as_ref().unwrap_or(view));
+        (placed, copy)
+    };
     let view = placed.as_ref().unwrap_or(view);
     // Buffer views read title memory: their range is copied at submission;
     // what shaders write through unordered access goes back to it after.
-    if let Some((shadow, address, len)) = crate::descriptor::host::buffer_copy(view) {
-        shadow.refresh(list, address, len);
+    if let Some((shadow, address, len)) = copy {
+        {
+            #[cfg(feature = "diagnostics")]
+            let _sample = sample.then(|| crate::timeline::span("readable: sampled recording and refresh deduplication"));
+            shadow.refresh(list, address, len);
+        }
         if kind == ResourceType::Uav {
             // A shader that cannot store to buffers leaves the range as
             // the title has it: nothing to find afterwards.

@@ -41,6 +41,10 @@ function Write-AtomicText([string]$Path, [string]$Content) {
 }
 
 function Protect-ReviewText([string]$Value) {
+    # Portable checkout paths, including JSON-escaped Windows separators.
+    $Value = $Value -replace '(?i)\b[A-Z]:[/\\]+[^\r\n"<>`]*?[/\\]+victory-low-end-pc(?=[/\\]|[\s"`]|$)', '.'
+    $Value = $Value -replace '(?i)\b[A-Z]:[/\\]+[^\r\n"<>`]*?[/\\]+(victory-scarlett-integration|victory-scarlett-3070)(?=[/\\]|[\s"`]|$)', '../$1'
+    $Value = $Value -replace '(?i)\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16})\b', '[redacted credential]'
     $Value = $Value -replace '(?i)\b[A-Z]:[/\\]+Users[/\\]+[^/\\\s"<>]+[/\\]+AppData[/\\]+Local', '%LOCALAPPDATA%'
     $Value = $Value -replace '(?i)\b[A-Z]:[/\\]+Users[/\\]+[^/\\\s"<>]+', '%USERPROFILE%'
     $Value = $Value -replace '(?i)\b[A-Z]:[/\\]+[^\r\n"<>]*?(?:game_scarlett_master\.exe|\.rpf\b)', '[local title content]'
@@ -102,6 +106,9 @@ $revisions = [ordered]@{}
 function Add-Report([string]$Name, [string]$Path) {
     $source = [IO.File]::ReadAllText($Path)
     $core[$Name] = Protect-ReviewText $source
+    if ($Name.EndsWith('.json', [StringComparison]::OrdinalIgnoreCase)) {
+        $null = ConvertFrom-Json -InputObject $core[$Name] -ErrorAction Stop
+    }
     $revisions[$Name] = [ordered]@{
         path = $Path
         local_sha256 = Revision-Hash $source
@@ -181,6 +188,9 @@ foreach ($item in $inputsList) {
             $null = ConvertFrom-Json -InputObject $original -ErrorAction Stop
         }
         $content = Protect-ReviewText $original
+        if ($item.kind -eq 'benchmark') {
+            $null = ConvertFrom-Json -InputObject $content -ErrorAction Stop
+        }
         $entry = "$($item.label)$($file.Extension)"
         if ($evidence.Contains($entry)) { throw "Duplicate review input $entry." }
         $evidence[$entry] = $content

@@ -2,7 +2,7 @@
 # Uses the vendored cool_fox diagnostics build and scripts\run.cmd.
 # These settings reduce commit pressure so the 0x8007000E OOM crashes stop.
 param(
-    [string]$Game = 'USER_HOME\Downloads\LOCAL_TITLE-\game_scarlett_master.exe',
+    [Parameter(Mandatory)][string]$Game,
     [uint32]$CardBuffersMb = 512,
     [ValidateRange(0, 3)][int]$MipDrop = 3
 )

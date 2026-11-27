@@ -1,6 +1,6 @@
 # Frame generation status
 
-Frame generation is deferred. The last verified settled baseline is 6.89 FPS with one rendered frame per counted presentation. No frame generation backend, pacing configuration or capability override is installed. Generated FPS is zero in the existing comparison.
+Frame generation is deferred. The best cited controlled opening-scene sample measured 6.93 accepted DXGI presents per second. This counter does not independently measure displayed or rendered FPS. The tested build has zero generated frames.
 
 NVIDIA's official matrix does not list RTX 30 Series for DLSS Frame Generation or Multi Frame Generation. AMD lists RTX 30 Series as recommended hardware for FSR 3.1 Frame Generation and recommends an input near 60 FPS. Its developer guidance strongly discourages input below 30 FPS. [NVIDIA DLSS hardware matrix](https://www.nvidia.com/en-us/geforce/technologies/dlss/) · [AMD FSR 3.1 release notes](https://gpuopen.com/learn/amd_fsr_3_1_release/) · [AMD frame-generation integration](https://gpuopen.com/amd-fsr-framegeneration/)
 

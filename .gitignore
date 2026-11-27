@@ -76,3 +76,25 @@ cool_fox/victory.toml
 *.swp
 Thumbs.db
 .DS_Store
+
+# Private configuration, saves and local audit exports
+/.env
+/.env.*
+!/.env.example
+**/.env.local
+**/.env.*.local
+*.pem
+*.key
+*.pfx
+*.p12
+*.kdbx
+*.xex
+/saves/
+/savegames/
+/shader-cache/
+/pipeline-cache/
+/CHATGPT_REPORTS/PRIVATE/
+/CHATGPT_REPORTS/LATEST_LOG_EXCERPTS.txt
+/CHATGPT_REPORTS/*.tmp
+/AUDIT_*.txt
+/publication-audit-local/

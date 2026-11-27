@@ -16,11 +16,12 @@ $end = $started.AddMinutes(1 + $milestones[-1])
 $lifecycle = [Collections.Generic.List[object]]::new()
 $shaderEvents = [Collections.Generic.List[object]]::new()
 $cacheEvents = [Collections.Generic.List[object]]::new()
+$shaderCacheEvents = [Collections.Generic.List[object]]::new()
 $source = [IO.File]::Open($log, 'Open', 'Read', 'ReadWrite')
 $reader = [IO.StreamReader]::new($source)
 try {
     while ($null -ne ($line = $reader.ReadLine())) {
-        if ($line -notmatch '^(?<time>\S+)\s+(?:INFO|WARN|ERROR)\s+(?<scope>victory_gpu::pipeline(?:::library)?|victory_hle::modules::lifecycle):\s+(?<message>.*)') { continue }
+        if ($line -notmatch '^(?<time>\S+)\s+(?:INFO|WARN|ERROR)\s+(?<scope>victory_gpu::pipeline(?:::library)?|victory_gpu::queue|victory_hle::modules::lifecycle):\s+(?<message>.*)') { continue }
         $when = [DateTimeOffset]::Parse($Matches.time)
         $scope = $Matches.scope
         $message = $Matches.message
@@ -30,7 +31,11 @@ try {
             }
             continue
         }
-        if ($message -match '^shader (translated|does not translate)') {
+        if ($scope -eq 'victory_gpu::queue') {
+            if ($message -match '^shaders from the cache and translated so far hits=(\d+) misses=(\d+)') {
+                $shaderCacheEvents.Add([PSCustomObject]@{ at = $when; hits = [int]$Matches[1]; misses = [int]$Matches[2] })
+            }
+        } elseif ($message -match '^shader (translated|does not translate)') {
             $shaderEvents.Add([PSCustomObject]@{ at = $when; translated = $Matches[1] -eq 'translated' })
         } elseif ($message -match 'host pipeline library saved .*?\bmade=(\d+) loaded=(\d+)') {
             $cacheEvents.Add([PSCustomObject]@{ at = $when; made = [int]$Matches[1]; loaded = [int]$Matches[2] })
@@ -71,9 +76,10 @@ $windows = foreach ($minute in $milestones) {
         complete = ($coverage -ge 57 -and $coverage -le 63 -and $raw.windows_without_raw_intervals -eq 0)
         accepted_present = $raw
         peak_pending_pipelines = ($samples | Measure-Object compiling_pipelines -Maximum).Maximum
-        new_shader_translation_successes = @($shaderWindow | Where-Object translated).Count
+        logged_shader_successes_including_cache_hits = @($shaderWindow | Where-Object translated).Count
         new_shader_translation_failures = @($shaderWindow | Where-Object { -not $_.translated }).Count
-        shader_completions_between_zero_pending_samples = $zeroBacklogCompletions
+        shader_successes_between_zero_pending_samples_including_cache_hits = $zeroBacklogCompletions
+        last_shader_cache_counts = ($shaderCacheEvents | Where-Object { $_.at -lt $to } | Select-Object -Last 1)
         last_pipeline_library_save = ($cacheEvents | Where-Object { $_.at -lt $to } | Select-Object -Last 1)
         host_draws_mean = ($samples | Measure-Object draws -Average).Average
         host_dispatches_mean = ($samples | Measure-Object host_dispatches -Average).Average
@@ -104,7 +110,7 @@ $result = [ordered]@{
     planned_end_utc = $end.ToString('o')
     planned_end_reached = $receipt.finished_utc -and [DateTimeOffset]$receipt.finished_utc -ge $end
     completed_windows_minutes = $completed
-    unavailable_metrics = @('independent rendered/displayed FPS', 'instantaneous translation queue and active workers', 'independent GPU execution timestamps', 'shader cache hits and misses between reported events')
+    unavailable_metrics = @('independent rendered/displayed FPS', 'instantaneous translation queue and active workers', 'independent GPU execution timestamps', 'shader cache hits and misses between reported queue snapshots')
     lifecycle = $lifecycle
     windows = @($windows)
 }

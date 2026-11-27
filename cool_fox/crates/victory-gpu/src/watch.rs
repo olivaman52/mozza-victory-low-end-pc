@@ -128,12 +128,100 @@ struct Journal {
     /// Page ranges asked ahead for a submission's refreshes ([`ask_ahead`])
     /// and the asking that did: `writes` answers for a range inside one
     /// from the journal, without another kernel call.
-    ahead: Vec<(usize, usize)>,
+    ahead: AheadRanges,
     ahead_asked: u64,
     /// The ahead asking stands for a whole submission ([`ask_once`]): no
     /// other ahead asking is made, and `ahead` stays, until
     /// [`ask_once_end`].
     kept: bool,
+}
+
+/// A lookup contains a range only if one successful asking covered it.
+/// Adjacent or overlapping askings are never joined to extend coverage.
+#[derive(Default)]
+struct AheadRanges {
+    ranges: Vec<(usize, usize)>,
+    by_start: Option<BTreeMap<usize, usize>>,
+}
+
+impl AheadRanges {
+    const fn new() -> Self {
+        Self { ranges: Vec::new(), by_start: None }
+    }
+
+    fn indexed() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("VICTORY_AHEAD_INDEX").is_some_and(|v| v == "1"))
+    }
+
+    fn verify() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("VICTORY_AHEAD_INDEX_VERIFY").is_some_and(|v| v == "1"))
+    }
+
+    fn from_asked(ranges: Vec<(usize, usize)>) -> Self {
+        if !Self::indexed() {
+            return Self { ranges, by_start: None };
+        }
+        let mut by_start = BTreeMap::new();
+        for &(first, last) in &ranges {
+            Self::index(&mut by_start, first, last);
+        }
+        Self { ranges, by_start: Some(by_start) }
+    }
+
+    fn index(by_start: &mut BTreeMap<usize, usize>, first: usize, last: usize) {
+        if Self::indexed_covers(by_start, first, last) {
+            return;
+        }
+        // Remove contained askings. End points are then strictly increasing
+        // in start order, so only the predecessor can cover a query.
+        while let Some((&start, &end)) = by_start.range(first..).next() {
+            if end > last {
+                break;
+            }
+            by_start.remove(&start);
+        }
+        by_start.insert(first, last);
+    }
+
+    fn indexed_covers(by_start: &BTreeMap<usize, usize>, first: usize, last: usize) -> bool {
+        by_start.range(..=first).next_back().is_some_and(|(_, &end)| last <= end)
+    }
+
+    fn covers(&self, first: usize, last: usize) -> bool {
+        if let Some(by_start) = &self.by_start {
+            let covered = Self::indexed_covers(by_start, first, last);
+            if !Self::verify() {
+                return covered;
+            }
+            let original = self.ranges.iter().any(|&(a, b)| a <= first && last <= b);
+            if original != covered {
+                #[cfg(feature = "diagnostics")]
+                crate::refresh_census::outcome(crate::refresh_census::Outcome::AheadIndexMismatch);
+                tracing::warn!("indexed write-watch coverage disagreed with the original lookup");
+            }
+            return original;
+        }
+        self.ranges.iter().any(|&(a, b)| a <= first && last <= b)
+    }
+
+    fn push(&mut self, first: usize, last: usize) {
+        if self.by_start.is_none() && Self::indexed() {
+            self.by_start = Some(BTreeMap::new());
+        }
+        if let Some(by_start) = &mut self.by_start {
+            Self::index(by_start, first, last);
+        }
+        self.ranges.push((first, last));
+    }
+
+    fn clear(&mut self) {
+        self.ranges.clear();
+        if let Some(by_start) = &mut self.by_start {
+            by_start.clear();
+        }
+    }
 }
 
 /// Read by many threads at once (a submission's refreshes run on several),
@@ -145,7 +233,7 @@ struct Journal {
 static JOURNAL: RwLock<Journal> = RwLock::new(Journal {
     written: BTreeMap::new(),
     parts: std::collections::HashMap::with_hasher(std::hash::BuildHasherDefault::new()),
-    ahead: Vec::new(),
+    ahead: AheadRanges::new(),
     ahead_asked: 0,
     kept: false,
 });
@@ -381,13 +469,20 @@ const AHEAD_MAX: usize = (1 << 30) / PAGE;
 /// submissions refresh thousands of host copies (6,664 askings a frame,
 /// 456 ms, in run 14). Ranges that are not write-watched, or lie alone, are
 /// left to `writes`.
-pub(crate) fn ask_ahead(ranges: &[(usize, usize)]) {
+pub(crate) fn ask_ahead(ranges: impl IntoIterator<Item = (usize, usize)>) {
+    // The submission's one asking stands. Let a caller supply its ranges
+    // lazily so even the walk over the copies is unnecessary in this case.
+    if journal().kept {
+        #[cfg(feature = "diagnostics")]
+        crate::refresh_census::outcome(crate::refresh_census::Outcome::KeptAheadAsking);
+        return;
+    }
     let mut pieces: Vec<(usize, usize)> = ranges
-        .iter()
+        .into_iter()
         // Not view memory known by its bits: the kernel would refuse the
         // asking (and, asked together with others, theirs).
         .filter(|r| r.0 < r.1 && !published(r.0, r.1))
-        .map(|&(start, end)| (start / PAGE, end.div_ceil(PAGE)))
+        .map(|(start, end)| (start / PAGE, end.div_ceil(PAGE)))
         .collect();
     if pieces.len() < 2 {
         return;
@@ -416,9 +511,10 @@ pub(crate) fn ask_ahead(ranges: &[(usize, usize)]) {
         i = k;
     }
     note_hot(&written);
+    let ahead = AheadRanges::from_asked(asked);
     let mut j = journal_mut();
     j.ahead_asked = next_asking();
-    j.ahead = asked;
+    j.ahead = ahead;
     let now = j.ahead_asked;
     for (page, parts) in written {
         j.note(page, parts, now);
@@ -601,7 +697,7 @@ pub(crate) fn ask_once(ranges: &[(usize, usize)]) {
         return;
     }
     ask_once_end();
-    ask_ahead(ranges);
+    ask_ahead(ranges.iter().copied());
     ask_rest(ranges);
 }
 
@@ -624,11 +720,11 @@ fn ask_rest(ranges: &[(usize, usize)]) {
             continue;
         }
         let (first, last) = (start / PAGE, end.div_ceil(PAGE));
-        if !ahead.iter().any(|&(a, b)| a <= first && last <= b)
+        if !ahead.covers(first, last)
             && let Some(pages) = kernel_written(first, last)
         {
             written.extend(pages);
-            ahead.push((first, last));
+            ahead.push(first, last);
         }
     }
     note_hot(&written);
@@ -642,7 +738,7 @@ fn ask_rest(ranges: &[(usize, usize)]) {
     for (page, parts) in written {
         j.note(page, parts, now);
     }
-    j.kept = !ahead.is_empty();
+    j.kept = !ahead.ranges.is_empty();
     j.ahead = ahead;
 }
 
@@ -717,8 +813,7 @@ pub(crate) fn asked(start: usize, end: usize) -> Option<(u64, Vec<(usize, u64)>)
     let (first, last) = (start / PAGE, end.div_ceil(PAGE));
     let j = journal();
     j.ahead
-        .iter()
-        .any(|&(a, b)| a <= first && last <= b)
+        .covers(first, last)
         .then(|| (j.ahead_asked, j.written.range(first..last).map(|(&p, &w)| (p, w)).collect()))
 }
 
@@ -731,7 +826,7 @@ pub(crate) fn writes(start: usize, end: usize, guarded: bool) -> Option<(u64, Ve
     let (first, last) = (start / PAGE, end.div_ceil(PAGE));
     let of = |j: &Journal| -> Vec<(usize, u64)> { j.written.range(first..last).map(|(&p, &w)| (p, w)).collect() };
     // Asked ahead with the submission's other ranges: the journal has it.
-    let ahead = |j: &Journal| j.ahead.iter().any(|&(a, b)| a <= first && last <= b).then(|| (j.ahead_asked, of(j)));
+    let ahead = |j: &Journal| j.ahead.covers(first, last).then(|| (j.ahead_asked, of(j)));
     if let Some(known) = ahead(&journal()) {
         return Some(known);
     }
@@ -807,6 +902,8 @@ pub(crate) fn writes(start: usize, end: usize, guarded: bool) -> Option<(u64, Ve
 /// asked: the submission's asking covers the range, or its blocks are known
 /// by their bits. `false` if something would have to be asked.
 pub(crate) fn nothing_new(start: usize, end: usize, base: usize, copied: &[u64], ranged: u64) -> bool {
+    #[cfg(feature = "diagnostics")]
+    use crate::refresh_census::{Outcome, outcome};
     let (first, last) = (start / PAGE, end.div_ceil(PAGE));
     // The bits first, then the journal, as in `writes`.
     let known = published(start, end);
@@ -815,14 +912,25 @@ pub(crate) fn nothing_new(start: usize, end: usize, base: usize, copied: &[u64],
         crate::faultbook::note(crate::faultbook::What::Known, first, last, 1);
     }
     let j = journal();
-    if !known && !j.ahead.iter().any(|&(a, b)| a <= first && last <= b) {
+    if !known && !j.ahead.covers(first, last) {
+        #[cfg(feature = "diagnostics")]
+        outcome(Outcome::NeedsWriteWatch);
         return false;
     }
     let Some(taken) = first.checked_sub(base).and_then(|from| copied.get(from..last - base)) else {
+        #[cfg(feature = "diagnostics")]
+        outcome(Outcome::IncompleteCopyNotes);
         return false;
     };
-    (ranged != 0 || taken.iter().all(|&at| at != 0))
-        && j.written.range(first..last).all(|(&page, &write)| write <= taken[page - first].max(ranged))
+    if ranged == 0 && taken.contains(&0) {
+        #[cfg(feature = "diagnostics")]
+        outcome(Outcome::IncompleteCopyNotes);
+        return false;
+    }
+    let clean = j.written.range(first..last).all(|(&page, &write)| write <= taken[page - first].max(ranged));
+    #[cfg(feature = "diagnostics")]
+    outcome(if clean { Outcome::CleanJournal } else { Outcome::JournalWrite });
+    clean
 }
 
 impl Tracked {
@@ -2784,7 +2892,7 @@ mod parts_tests {
         let mut j = Journal {
             written: BTreeMap::new(),
             parts: std::collections::HashMap::with_hasher(std::hash::BuildHasherDefault::new()),
-            ahead: Vec::new(),
+            ahead: AheadRanges::new(),
             ahead_asked: 0,
             kept: false,
         };
@@ -2809,6 +2917,37 @@ mod parts_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ahead_index_matches_single_asking_coverage() {
+        use super::{AheadRanges, BTreeMap};
+
+        let mut indexed = BTreeMap::new();
+        let mut original = Vec::new();
+        for (first, last) in [(0, 3), (3, 5), (1, 4), (7, 9), (0, 2), (7, 10)] {
+            AheadRanges::index(&mut indexed, first, last);
+            original.push((first, last));
+        }
+        assert!(!AheadRanges::indexed_covers(&indexed, 1, 5));
+        assert!(!AheadRanges::indexed_covers(&indexed, 5, 8));
+        assert!(AheadRanges::indexed_covers(&indexed, 7, 10));
+
+        let mut seed = 167_u32;
+        for _ in 0..96 {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let first = ((seed >> 16) % 40) as usize;
+            let last = first + 1 + ((seed >> 24) % 9) as usize;
+            AheadRanges::index(&mut indexed, first, last);
+            original.push((first, last));
+            for from in 0..50 {
+                for to in from + 1..=50 {
+                    assert_eq!(AheadRanges::indexed_covers(&indexed, from, to),
+                        original.iter().any(|&(first, last)| first <= from && to <= last),
+                        "query {from}..{to} after inserting {first}..{last}");
+                }
+            }
+        }
+    }
+
     use super::*;
     use windows_sys::Win32::System::Memory::{
         MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
@@ -3192,12 +3331,16 @@ mod tests {
         assert_ne!(p, 0);
         // One range: `ask_ahead` leaves it.
         let ranges = [(p, p + 4 * PAGE)];
-        ask_ahead(&ranges);
+        ask_ahead(ranges);
         let (copied, _) = writes(p, p + 4 * PAGE, false).expect("watched");
         // SAFETY: committed pages of ours.
         unsafe { ((p + PAGE) as *mut u8).write_volatile(1) };
         ask_rest(&ranges);
         let last = journal().written.get(&(p / PAGE + 1)).copied();
+        assert!(journal().kept);
+        ask_ahead(std::iter::from_fn(|| -> Option<(usize, usize)> {
+            panic!("a kept asking must not walk another batch of ranges")
+        }));
         ask_once_end();
         assert!(last.is_some_and(|last| last > copied), "{last:?} is not after {copied}");
         // SAFETY: our allocation.

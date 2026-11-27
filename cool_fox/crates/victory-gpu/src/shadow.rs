@@ -3034,6 +3034,7 @@ impl Shadow {
 
     /// Brings `len` bytes at `address` up to date when `list` is submitted,
     /// and keeps the copy alive until the list is reset.
+    #[track_caller]
     pub(crate) fn refresh(self: &Arc<Self>, list: &HostList, address: u64, len: u64) {
         let len = len.min(self.start + self.len - address);
         list.defer_refresh(self, address as usize, len as usize);
@@ -3807,19 +3808,29 @@ impl Shadow {
     /// nothing, and knows it without asking anything
     /// (`crate::watch::nothing_new`). `false` if it would have to ask.
     pub(crate) fn nothing_new(&self, address: usize, len: usize) -> bool {
+        #[cfg(feature = "diagnostics")]
+        use crate::refresh_census::{Outcome, outcome};
         if self.place.is_some() {
+            #[cfg(feature = "diagnostics")]
+            outcome(Outcome::DirectBacking);
             return true;
         }
         let (start, end) = (self.start as usize, (self.start + self.len) as usize);
         let (from, to) = (address.max(start), (address + len).min(end));
         if from >= to {
+            #[cfg(feature = "diagnostics")]
+            outcome(Outcome::Empty);
             return true;
         }
         if !matches!(self.watched.load(Ordering::Relaxed), 1 | GUARDED) {
+            #[cfg(feature = "diagnostics")]
+            outcome(Outcome::Untracked);
             return false;
         }
         // Around ranges shaders are writing the refresh asks gap by gap.
         if self.pending.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|&(a, e)| a < to && e > from) {
+            #[cfg(feature = "diagnostics")]
+            outcome(Outcome::PendingGpuWrite);
             return false;
         }
         let copied = self.copied.lock().unwrap_or_else(|e| e.into_inner());

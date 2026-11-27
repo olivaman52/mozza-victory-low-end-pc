@@ -1,8 +1,24 @@
 # Victory Phase 2 review
 
-## Status at 2026-11-27 06:14 CET
+## Current checkpoint
 
-The primary checkout is `.`, branch `codex/graphics-overhaul` at `95aa317` with the reviewed Scarlett texture queue port and benchmark tools. It retains Phase 2 graphics edits, two new Rust modules, and documentation updates in the working tree. The separate integration worktree remains on `codex/scarlett-integration` at `3078989`, with a local harness option for reproducing the cache comparison. The WASDeKeys base is `179ad6e` and the preserved release is `8999b80`.
+The clean 50-second coverage comparison measured 6.83 accepted presents per second off and 6.73 on. Both processes exited 0. Draw counts were within 0.5%, compute counts differed by 3%, and median and p95 were slower with the index. It remains disabled by default. The 31-minute warm-cache run is active. See `CHECKPOINT.json` for process identity and schedule.
+
+The first coverage-index-off run ended with child exit code 1 at 15:57:56 CET. Its settled minute at 15:55:30 CET contains 393 accepted intervals, 6.53 FPS and 150.63 / 187.33 / 222.05 ms median, p95 and p99. The complete log contains no normal suspend sequence, crash or device-removal diagnostic. A matching Windows Application Error, WER, hang, .NET or display reset event did not appear around the exit. The cause is unverified. The repeated control uses a fresh warm seed copy and the identical `7f0d8195…` release. Coverage index, heavy diagnostics and the separate texture-queue candidate are disabled for this control.
+
+`codex/graphics-overhaul` has the tested job-size option at `bca549d` and preserved rollback releases. The six-worker screen lowered landing wall time from 39.29 to 34.37 ms while FPS stayed near 6.9. The descriptor screen reduced bytes read by about 48%, with 6.93 FPS off and 6.88 on. Landing validation passed 57 focused test executions across the 64, 512 and 1,024 KiB profiles, with three hardware-only executions ignored. The same-executable 256 and 512 KiB screens both measured 6.62 FPS and exited 0. Larger jobs nearly halved the number of jobs, while landing wall time held near 40.7 ms. Keep four workers and 256 KiB by default. Full title BVH and lighting remain unresolved.
+
+The strict hardware pointer fixture exposed a capability probe that requested 4,194,304 shader-visible views on a device capped at 1,000,000. The RTX 3060 Ti reported 1,000,000 view slots and 4,080 sampler slots through D3D12 Options19. The runtime now checks the reported limit before trying the large heap and reuses the Options19 query for pipeline setup. After the fix, the fixture completed both dispatches on the RTX 3060 Ti with the debug layer active and GPU-based validation requested, and separately with validation disabled. Output and adjacent sentinels matched exactly in both runs. The full title BVH gate stays in place. [Microsoft DirectX descriptor limits](https://microsoft.github.io/DirectX-Specs/d3d/VulkanOn12.html#sampler-descriptor-heap-size-increase)
+
+Two three-frame diagnostic traces recorded 79,046 and 83,549 events with zero lost. The graphics queue ran for 71.62 and 67.22 ms per guest frame and was idle for 89.27 and 38.21 ms in those samples. The paths to presentation varied. List worker time, CPU scheduling delays, preparation work and texture heap locks all appeared. The relay waited 10.17 and 12.95 ms per frame on the copy queue in its own thread. The traces place much of that wait beside other work.
+
+Over a 20-second settled diagnostic window, `draw.rs:4703` supplied 6.19 million refresh requests, about 87% of the recorded call-site total. The existing list gate deduplicated 4.95 million of those requests after buffer lookup. The next largest sources were indirect argument buffers and root SRVs. The submission path saw 449,896 exact range repeats inside a submission and 1,307,512 across submissions. The census counted 1.14 million clean journal decisions and 62,330 full update calls that copied zero bytes. This shows where to focus the next early elimination. Whole exact-range caching still needs GPU writes, remaps, and aliases accounted for. The trace also shows up to 7.10 ms per frame waiting on the texture queue from one recording worker. A local candidate skips the queue lock only for proven absent entries. Its tests and throughput comparison are pending.
+
+The diagnostic run found no indexed coverage disagreement and exited 0 after a title suspend timeout. It again observed a 1280×720 depth/lighting Resolve, 640×360 radiance and 1920×1080 presentation. Primary scene color is still unverified. The coverage-index throughput screen is separate and runs with the census, trace and differential check disabled.
+
+## Checkpoint at 07:00 CET, November 27, 2026
+
+Development stopped at the user's request. The primary checkout is `.`, branch `codex/graphics-overhaul` at `6afb875`, with the Scarlett texture queue port at `95aa317`. The separate integration worktree remains on `codex/scarlett-integration` at `3078989`. The WASDeKeys base is `179ad6e` and the preserved Phase 1 release is `8999b80`.
 
 The Windows machine has an i7-12700F with 8 P cores, 4 E cores and 20 logical processors, an RTX 3060 Ti with 8 GiB VRAM and Wave32, NVIDIA driver 617.42, and 32 GiB RAM. Rendering uses Direct3D 12. The matched benchmark profile uses Series S, 1,024 MiB card buffers, 256 MiB windows, texture mip drop 1, and 1920×1080 presentation. Internal scene resolution remains unverified.
 
@@ -11,6 +27,8 @@ The executables below are locked diagnostics releases targeting `x86_64-pc-windo
 | Executable relative to its checkout | SHA-256 | Status |
 |---|---|---|
 | `cool_fox/target/x86_64-pc-windows-msvc/release/victory-phase1-8999b80.exe` | `e55fb823b9f26c22d18a36d2335880598f6587366c1e0a10ba47068d1ecf5d1c` | Preserved Phase 1 release and baseline |
+| `cool_fox/target/x86_64-pc-windows-msvc/release/victory-phase2-diagnostics-078e2b81.exe` | `078e2b81d07cbbb221fd84b15ef0fbb9f6ae00470681ab9cb614944bb55096d3` | Recovered Phase 2 diagnostics release. Completed the probing and timing-only runs with exit code 0. |
+| `cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe` at `6afb875`, also preserved as `victory-phase2-span-6afb875.exe` | `92698f023ba9dc7366bf4fcb837e65032917670ae9efce278d5615c0fd08cd7d` | Built and benchmarked with the span flag on and off. Both runs exited 0. The flag defaults off. |
 | `cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe`, in the integration checkout | `d5b207648ebaa49ff16dddfaf9dc98f97e293e6e0f77077087d00dc75ed64db7` | Built and passed synthetic tests. Warm startup quit before settling with the bypass active. Queue-only warm run settled and exited 0. |
 
 ## Measurements
@@ -25,6 +43,10 @@ The executables below are locked diagnostics releases targeting `x86_64-pc-windo
 | Scarlett 3070, warm checkpoint | 2.82 | 355.1 | 261.8 | 57.8 | 35.3 | 2.6 | 260 | 573 |
 | Combined WASDeKeys integration, warm startup only | 2.71 | 369.0 | 0.0 | 77.5 | 58.8 | 26.6 | 284 | 728 |
 | Integration, queue only, later warm checkpoint | 6.82 | 146.6 | 4.0 | 65.9 | 41.6 | 21.5 | 272 | 620 |
+| Recovered Phase 2, tracing and concurrent compilation | 5.23 | 191.1 | | 74.4 | 48.4 | 18.7 | 280 | 624 |
+| Recovered Phase 2, timing-only checkpoint | 6.49 | 154.0 | 3.2 | 65.9 | 40.3 | 11.7 | 275 | 615 |
+| Phase 2 span check enabled | 6.55 | 152.7 | 3.9 | 68.8 | 42.9 | 15.7 | 280 | 614 |
+| Phase 2 span check disabled, matched executable | 6.31 | 158.5 | 1.8 | 67.8 | 44.1 | 16.1 | 281 | 628 |
 
 The two completed warm comparison runs used library caches populated by their own version and different sample windows. The preserved Phase 1 result has nine settled windows, the Scarlett result eleven. Both exited 0. GPU waits are queue-wait measurements, and the CPU, GPU and readback timers overlap. These samples do not establish global present-interval percentiles.
 
@@ -34,13 +56,28 @@ The combined startup run averaged 303 pending pipelines over its last sampled mi
 
 The queue-only run displayed the character and window without Scarlett's severe banding. The dark interior remained. Texture processing was 15.27 ms versus 18.35 ms in the earlier baseline. The later window averaged 6.82 FPS, close to the previous 6.89 FPS. An earlier window overlapped more compiler activity and averaged 6.32 FPS. Treat the fixture speedup as isolated CPU evidence. The profile remains 1920×1080 presentation with internal dimensions pending.
 
+The 06:25 CET diagnostic minute contained 316 raw present intervals with a 187.51 ms median, 237.68 ms p95 and 295.65 ms p99. The active trace and background compiler affect elapsed time. It classified 94.82% of rejected indirect calls as unavailable ray dependencies and 5.18% as shader translation failures. No indirect records were reported empty for want of budget. Sampled copy-queue transfers averaged 1.85 ms waiting for the fetch fence. Readback overall averaged 74.42 ms and 50.67 MB per sampled frame. That broader timer includes other work and overlaps preparation. The periodic buffer sweep still selected roughly 2.86 million fallback entries across the minute. Dirty and fallback overlap fell by about 407 entries per frame.
+
+The timing-only run exited 0. Its 06:35:30 CET minute had 391 raw intervals with a 150.60 ms median, 193.85 ms p95 and 238.50 ms p99. The screenshot showed the character, hair and window. Dark interior lighting persisted. Test compilation still overlapped the run. The earlier warm baseline remains 6.89 FPS.
+
+The span-on sample showed the same dark interior and visible character and window, including the fence. Its minute contained 397 raw intervals with p50/p95/p99 of 149.73/184.89/208.15 ms. It exited 0.
+
+The span-off control minute contained 377 raw intervals with p50/p95/p99 of 153.91/201.73/339.54 ms. The on/off pair differed by 0.24 FPS, with visible scene differences and 4,495 versus 4,622 draws. Keep the switch experimental. The control closed normally after about 9 minutes 45 seconds from launch. The full 30-minute stability target is pending.
+
+The last control minute averaged 4.84 FPS with a 157.92 ms median and a 500.06 ms p95, while the follow-up compilation was active. Dedicated use at the last sampled memory point was 6,028 MiB of 6,725 MiB, with 5,780 MiB shared. The runtime log ends with the known queue `0xb8` warning followed by normal suspension and exit code 0. No device loss or crash was logged.
+
 ## Changes and verification
 
 - The verified Phase 1 release keeps idle lists and allocators while commit headroom permits, with emergency trimming retained. It includes corrected BC7 channel rotation, pipeline worker failure recovery, fused guest legacy multiply-add verified on RTX 3060 Ti, WARP indirect tests, and an earlier optional per-window frame metrics exporter.
 - `714cda3` bypasses persistent pipeline-library entries for pipelines using static samplers while leaving in-process creation and reuse intact. Six library tests passed. Cross-process pixel correctness on RTX 3060 Ti is pending.
 - `aae3811` partitions the eligible texture queue before sorting. Three focused queue tests passed, including identical ordering across limits in a differential test. The 40,000-slot CPU-only microbenchmark returned identical results and took 5.10 ms old vs 1.45 ms partitioned at a 256-entry request under concurrent load. Gameplay effect remains unverified.
 - `3078989` adds the common benchmark runner, isolated cache and save roots, an exit record, and a sampled window exporter. The Phase 1 warm rerun and Scarlett warm run closed normally.
-- Original Phase 2 work includes dirty descriptor sweep instrumentation and deduplication, sparse buffer ranges, individual present intervals, counted indirect rejection reasons, reduced readback interval allocation, readback attribution, and scene extent instrumentation. The indirect clamp wrappers now return typed failures while preserving execution policy. The lighting diagnostic checks the descriptor belongs to a bound heap and starts at a slot boundary. Readback tracing now measures actual event waits separately from the broader relay window. The compilation check is in progress. The PowerShell raw-frame exporter passed an aggregate, timestamp-filter, missing-sample and legacy-export fixture.
+- Phase 2 builds with dirty descriptor sweep instrumentation and deduplication, sparse buffer ranges, individual present intervals, counted indirect rejection reasons, reduced readback interval allocation, readback attribution, and scene extent instrumentation. The lighting Resolve output and scene-depth input were both observed at 1280×720. Primary scene color and upscaler extents remain open. The raw-frame exporter passed its synthetic tests.
+- An indirect hardware fixture failed because its sample records filled slightly less than the budget under the default reject-oversized-record policy. The fixture now submits two exact half-budget charges and checks the reset, with production budget policy preserved.
+- The revised indirect budget test passed. The release test binary also passed the three other host-list indirect tests, the span-extent test and the new bitmap concurrency test with D3D12 debug and GPU-based validation requested.
+- In an offline Wave32 probe, all 52 local BVH builder compute programs emitted, passed the Windows SDK DXIL validator, and created D3D12 pipelines. Six intersection fixtures also passed. End-to-end guest address translation, fences, stage ordering and counter readback remain open. The builder stays gated.
+- The complete focused rerun passed 29 tests and left eight ignored. The separate descriptor suite passed 36 tests with the span flag enabled. Two guest-address tests and the overlapping CPU/GPU flights model also passed.
+- The working tree contains two unfinished follow-ups. `shadow.rs` removes a nested mutex by keeping range and page coverage together under the existing page lock. `host.rs` filters timing intervals by the DXGI Present return status and counts unaccepted calls. The first test build found a missing test import. That import was corrected and the rerun was cancelled at the user's request before any results. The current release does not include these edits.
 
 ## Rendering and stability
 
@@ -48,10 +85,36 @@ The prior Phase 1 image showed a sharp fence and hair. The square hair edge was 
 
 There are still 22 shader translation refusals across multiple Wave64 cases on the preserved run, a one-million-entry host descriptor limit for a 1,245,184-entry guest request, unaligned-view cases, and missing pipeline and indirect operations. The BVH builder remains gated. The queue slot `0xb8` was seen during normal shutdown. Later scenes, sustained timing, device loss over extended runs, render resolution, and stability beyond the brief runs remain pending.
 
-## Immediate continuation
+## Resume point
 
-1. Finish the Phase 2 recovered build and release tests on the primary branch. Keep the rollback binary and the separate integration binary.
-2. Rebenchmark the new diagnostics release with raw intervals at the same checkpoint. Run readback and dimensions probes separately. Check descriptor wait, GPU readback and ranked indirect drops before attributing change.
-3. The original Phase 2 source is already present and repaired in the primary working tree. The pre-recovery patch is an archival copy. Keep the current typed clamp plumbing, lifetime correction, and transfer/census work in the current tree.
+1. Rerun the four focused coverage, overlap, exclusion and DXGI status tests recorded in the handoff. Build the follow-up release only after they pass.
+2. Use the preserved `6afb875` release for the next control. Complete three matched repetitions and a 30-minute stability run.
+3. Identify the ray and shader dependencies of the dark-lighting path. Use the optional guest-lighting probe and validate address, ordering and readback fixtures before changing the BVH gate.
 4. Continue with descriptor list-close waits, readback attribution, redundant refreshes and the indirect rejection census. Validate scene extents from source and logs before claiming native internal resolution.
 5. Append new benchmark records to [BENCHMARK_HISTORY.csv](BENCHMARK_HISTORY.csv), add diagnostic sources to `REVIEW_INPUTS.json` and regenerate with `pwsh -File scripts/new-review-package.ps1`. Run with `-ArchiveReport` before replacing a major report revision. `LOG_MANIFEST.csv` identifies complete local logs, including those represented by redacted excerpts.
+
+## Targeted Phase 2 resumed
+
+All four interrupted tests passed after the corrected import. The release build from `5811d95` succeeded afterward. Its SHA-256 is `a35e761c0faf481d90a843841d689a20a535d7067d389f03862341c23dfeb9c5`. The historical control now has an independent split of guest record processing, host view processing, CPU landing and card transfer. In its selected window, 189,287 guest slots per frame were examined for 9,514 new mirrors. Guest record processing averaged 57.32 ms, with 10.13 ms asking, 7.29 ms reading and comparing, 20.83 ms making views, and 18.28 ms waiting. These counters have different scopes. CPU landing averaged 39.87 ms wall time over about 257 jobs per frame. Card fetch averaged 22.88 ms in the coarser counter. Readback and preparation can overlap.
+
+The new Windows CPU and per-engine GPU sampler is available for the controlled benchmark. Its first probe observed background CPU and GPU activity before the game launch. Baseline and candidate will record that activity separately from Victory's own timers.
+
+Runtime BVH review identified stale heap-pointer reuse and list-key collisions for guest addresses 8 GiB apart. Both defects arise before traversal. The first descriptor work candidate clips copies to records with mirrored slots while preserving page queries and publication. Historical inputs read 10.92 MiB per frame for at most 5.78 MiB of examined 32-byte records. The savings from clipping need a controlled run.
+
+The clean-control launch began at 07:23 CET after test and compiler activity ended. While it runs, the separate source patch implements both BVH fixes and adds a synthetic linked-node producer and consumer. It also clips guest reads behind an opt-in and indexes CPU landing exclusion ranges while reusing scratch buffers. The candidate is awaiting compile and tests. The live baseline uses the unchanged `5811d95` executable.
+
+The control completed and exited 0. Its settled minute at 07:26:35 CET recorded **6.82 FPS**, 410 accepted DXGI intervals, and 142.25/186.27/259.22 ms median/p95/p99. The current build displayed the character, hair and window with the dark interior. CPU landing averaged 39.31 ms, card fetch 21.02 ms, guest record sweep 52.55 ms and host view inspection 41.63 ms. Draws, missing pipelines and dropped indirect operations averaged 4,609/279/620 per sampled frame. The sampler failed on a changing Windows wildcard counter after a startup sample, so settled background CPU and GPU observations are incomplete. Subsequent comparisons need the revised sampler. The controlled work excludes builds and synthetic hardware tests.
+
+After shutdown, tests started for the next source candidate. The original build, both earlier rollback executables and the complete baseline log remain available. [Detailed measurements](../PERFORMANCE_RESULTS.md)
+
+The ten focused candidate tests have since passed. The new RTX 3060 Ti fixture passed with GPU validation requested. Its first dispatch stored a second page's guest address and a payload in the GPU arena. Its second dispatch followed that GPU-written address, then published the expected two dwords to guest memory, preserving surrounding sentinels and the CPU copy of the node. That validates the synthetic address-directory handoff. The full title BVH and lighting paths remain gated. Exact-byte landing and descriptor cap fixtures also passed. All changes are recorded in `1e71efa`, `0478002` and `4336c22`. The current release build is running. [Source details](SOURCE_CHANGES.md)
+
+The expanded test pass covered the simultaneous landing, guest CPU write and light-refresh fixture, 37 descriptor tests and the changed-record differential. The counter sampler revision also returned three of three samples despite invalid entries. The baseline's partial activity sample remains in the archive.
+
+The locked diagnostics release at `4336c22` compiled with five existing GPU warnings. SHA-256 is `d7cda8019bb0298f8bd8c19d0bb09b2e9180846bba74579bce8bc27dacd1e73e`. The clip-off control launched at 07:37 CET after build and test completion. The next launch will use an independent copy of the same cache and the same executable hash with only guest-read clipping enabled.
+
+Clip-off completed with exit 0. Its settled minute recorded 6.93 FPS, 413 accepted presents, and 141.94/173.80/213.33 ms median/p95/p99. Guest record sync read 11.51 MiB and processed for 54.33 ms per frame, with a separate 14.67 ms wait. The screenshot before the timed window had the character and window and showed transient blocky hair edges and blue patches.
+
+Clip-on also exited 0. At near-identical draw and compute counts, it read 6.02 MiB per frame, processed for 52.60 ms and waited 12.58 ms for guest records. It averaged 6.88 FPS with 141.72/186.02/235.28 ms median/p95/p99. The screen supports less reading with similar rendering work and does not establish a gameplay gain. Keep clipping opt-in. Six activity samples cover each measured minute. Both scenes still had dark lighting. The next live run changes only the number of landing workers from four to six. [Paired results](../PERFORMANCE_RESULTS.md)
+
+The recovered six-worker run completed its measured minute at 6.87 FPS with 34.37 ms landing wall time, compared with 6.93 FPS and 39.29 ms at four workers. Worker time increased to 170.15 ms summed across threads. The selected scenes had similar draw and compute counts. The six-worker process later exited 0 after a title suspend timeout. The old PID was not acted on. Four workers remain the default while job-size work is tested. [Recovered results](../PERFORMANCE_RESULTS.md)

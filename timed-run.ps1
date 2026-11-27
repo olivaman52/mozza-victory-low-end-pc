@@ -2,12 +2,12 @@
 # with NO run timer. Re-running prewarm skips shaders already in the cache.
 param(
     [int]$WarmSeconds = 360,
-    [int]$Jobs = 24
+    [int]$Jobs = 24,
+    [Parameter(Mandatory)][string]$Game
 )
 
 $repo = $PSScriptRoot
 $exe = Join-Path $repo 'cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe'
-$game = 'USER_HOME\Downloads\LOCAL_TITLE-\game_scarlett_master.exe'
 $gameDir = Split-Path $game
 $status = Join-Path $repo 'timed-status.txt'
 $warmLog = Join-Path $repo 'timed-prewarm.log'

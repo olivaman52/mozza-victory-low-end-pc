@@ -5715,6 +5715,10 @@ impl Host {
         let mut firsts = Vec::with_capacity(runs.len());
         let mut batch = Batch::default();
         #[cfg(feature = "diagnostics")]
+        {
+            batch.submission = this_submission;
+        }
+        #[cfg(feature = "diagnostics")]
         let split = Split::begin();
         // The time a settle of flights takes inside this preparing: the
         // wait for the card and the copy-back have their own places on the
@@ -7063,6 +7067,7 @@ impl HostList {
     /// Brings `[address, address + len)` of a buffer's host copy up to date
     /// when the list is submitted (once per range until a title copy
     /// intervenes), keeping the copy alive until the list is reset.
+    #[track_caller]
     pub(crate) fn defer_refresh(
         &self,
         shadow: &std::sync::Arc<crate::shadow::Shadow>,
@@ -7071,10 +7076,16 @@ impl HostList {
     ) {
         let mut deferred = self.deferred();
         let key = (std::sync::Arc::as_ptr(shadow) as usize, address, len);
-        if deferred.refreshed.insert(key) {
+        let queued = deferred.refreshed.insert(key);
+        if queued {
             deferred
                 .copies
                 .push(Step::Refresh(shadow.clone(), address, len));
+        }
+        #[cfg(feature = "diagnostics")]
+        {
+            drop(deferred);
+            crate::refresh_census::request(std::panic::Location::caller(), queued);
         }
     }
 
@@ -7532,6 +7543,7 @@ impl HostList {
                     {
                         refreshes += 1;
                         refreshed += *len as u64;
+                        crate::refresh_census::step(shadow, *address, *len, batch.submission);
                     }
                     batch.add(shadow, *address, *len);
                     continue;
@@ -7687,6 +7699,7 @@ impl Split {
 /// The split of the preparing, per frame, for the frame-rate line.
 #[cfg(feature = "diagnostics")]
 fn split_line(frames: f64) {
+    crate::refresh_census::report();
     let ms: Vec<f64> = SPLIT.iter().map(|n| n.swap(0, Ordering::Relaxed) as f64 / 1e6 / frames).collect();
     let f: Vec<f64> = FLUSHES.iter().map(|n| n.swap(0, Ordering::Relaxed) as f64 / frames).collect();
     let e: Vec<f64> = crate::watch::early_asks().iter().map(|&n| n as f64 / frames).collect();
@@ -7824,6 +7837,8 @@ mod wide_refresh_tests {
 /// once, it is checked again only after a step that writes title memory.
 #[derive(Default)]
 struct Batch {
+    #[cfg(feature = "diagnostics")]
+    submission: u64,
     refreshes: Vec<(std::sync::Arc<crate::shadow::Shadow>, usize, usize)>,
     /// Where each copy (by address) is in `refreshes`: the list that makes
     /// the heap's buffers ready adds some 4,100 copies, and searching them
@@ -8071,10 +8086,14 @@ impl Batch {
         let end = address + len;
         let key = std::sync::Arc::as_ptr(shadow) as usize;
         if self.ahead.get(&key).is_some_and(|&(from, to)| from <= address && end <= to) {
+            #[cfg(feature = "diagnostics")]
+            crate::refresh_census::outcome(crate::refresh_census::Outcome::CoveredByFront);
             return;
         }
         match self.index.get(&key) {
             Some(&at) => {
+                #[cfg(feature = "diagnostics")]
+                crate::refresh_census::outcome(crate::refresh_census::Outcome::Coalesced);
                 let r = &mut self.refreshes[at];
                 (r.1, r.2) = (r.1.min(address), r.2.max(end));
             }
@@ -8120,6 +8139,12 @@ impl Batch {
         let started = std::time::Instant::now();
         let _one = crate::timeline::span("a copy's refresh");
         let copied = shadow.update(from, to - from);
+        #[cfg(feature = "diagnostics")]
+        crate::refresh_census::outcome(if copied == 0 {
+            crate::refresh_census::Outcome::UpdatedWithoutCopy
+        } else {
+            crate::refresh_census::Outcome::UpdatedWithCopy
+        });
         let us = started.elapsed().as_micros() as u64;
         #[cfg(feature = "diagnostics")]
         crate::copystat::range(from, to - from, us, 0);
@@ -8202,8 +8227,7 @@ impl Batch {
         }
         let ahead = spans.len() > 1;
         if ahead {
-            let ranges: Vec<(usize, usize)> = spans.iter().filter(|r| r.0.asked_ahead()).map(|r| (r.1, r.2)).collect();
-            crate::watch::ask_ahead(&ranges);
+            crate::watch::ask_ahead(spans.iter().filter(|r| r.0.asked_ahead()).map(|r| (r.1, r.2)));
         }
         #[cfg(feature = "diagnostics")]
         FLUSHES[3].fetch_add(spans.len() as u64, Ordering::Relaxed);
@@ -8364,13 +8388,7 @@ impl Batch {
         let ahead = self.refreshes.len() > 1;
         if ahead {
             let started = std::time::Instant::now();
-            let ranges: Vec<(usize, usize)> = self
-                .refreshes
-                .iter()
-                .filter(|r| r.0.asked_ahead())
-                .map(|r| (r.1, r.2))
-                .collect();
-            crate::watch::ask_ahead(&ranges);
+            crate::watch::ask_ahead(self.refreshes.iter().filter(|r| r.0.asked_ahead()).map(|r| (r.1, r.2)));
             PREPARING[0].fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
         }
         if wide_refresh() && self.refreshes.len() >= 4 {

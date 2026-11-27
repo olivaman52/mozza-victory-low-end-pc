@@ -59,6 +59,8 @@ mod primitive;
 pub mod query;
 pub mod queue;
 #[cfg(all(windows, feature = "diagnostics"))]
+mod refresh_census;
+#[cfg(all(windows, feature = "diagnostics"))]
 pub mod replay;
 #[cfg(windows)]
 mod residency;

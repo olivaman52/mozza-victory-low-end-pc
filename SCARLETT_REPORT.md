@@ -44,7 +44,7 @@ All runs targeted Series S with 1,024 MiB of card buffers, 256 MiB windows, mip 
 | Scarlett cold | 2.84 | 352.2 | — | 54.2 | 917 | 1,425 | Average 743 pipelines pending. Severe overexposure. Normal suspend. |
 | Phase 1 cold | 2.63 | 380.4 | — | 27.6 | 1,411 | 1,546 | Average 1,039 pending. Black frame. Part of the run overlapped compilation. Exit 0. |
 | Scarlett warm, settled | 2.82 | 355.1 | 261.8 | 57.8 | 260 | 573 | Average zero pending. Character and room visible with color banding and blocky edges. Exit 0. |
-| Phase 1 warm, settled | 6.89 | 145.2 | 4.9 | 62.8 | 278 | 622 | Zero pending across nine samples. The prior 6.79 FPS reference run visually confirmed the checkpoint. Current live run has no final exit status. |
+| Phase 1 warm, settled | 6.89 | 145.2 | 4.9 | 62.8 | 278 | 622 | Zero pending across nine samples. The prior 6.79 FPS reference run visually confirmed the checkpoint. The warm run exited 0. |
 | Integration, both ports, warm startup | 2.71 | 369.0 | 0.0 | 77.5 | 284 | 728 | Average 303 pipelines pending, 269 at close. Exit 0. |
 | Integration, queue only, warm | 6.82 | 146.6 | 4.0 | 65.9 | 272 | 620 | Eleven settled windows. Character and window rendered without Scarlett's severe banding. Dark interior remains. Exit 0. |
 

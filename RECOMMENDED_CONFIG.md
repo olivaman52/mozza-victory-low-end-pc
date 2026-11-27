@@ -18,3 +18,15 @@ Set `VICTORY_FRAME_METRICS=1` to log one window of actual presentation intervals
 | `VICTORY_CARD_REHASH_RUNS`, `VICTORY_JOIN_COPIES` | Grouping card hash work and combining adjacent recorded copies |
 
 Use the tested launcher's settings as a set until an individual switch has a measured result. Keep experimental lighting and shader adjustments separate.
+
+The Phase 2 candidate preserves the original static-sampler cache policy. Keep `VICTORY_READBACK_TRACE` and `VICTORY_RENDER_DIMENSIONS` off during a throughput run. For a separate diagnostic run, they measure readback fence waits and known render-resource extents. Set `VICTORY_RAW_FRAME_INTERVALS=1` when collecting frame-level statistics. Run `scripts/measure-frames.ps1 -Log <path> -From <UTC timestamp> -To <UTC timestamp> -Aggregate` for a true aggregate median and nearest-rank p95/p99 across the selected window.
+
+`VICTORY_SPANS_QUICK=1` is a descriptor lock experiment available in `6afb875`. The first pair showed a small difference and had different per-frame work. Keep the flag off in the recommended profile.
+
+The shared comparison matches the existing launcher values of ambient 0.3 and air 1.5. Run the separate `-DisableAmbientStandIn` experiment to inspect the game's own lighting outputs while retaining the BVH gate. It changes only `VICTORY_AMBIENT` to zero. Use the other profile values for direct comparison and keep the brightness clamp experiment off.
+
+`VICTORY_HEAP_CLIP_READS=1` reduces guest record reads in the capped heap mirror. It read 6.02 instead of 11.51 MiB per frame in the first pair and had similar workload counts. FPS and latency tails did not improve. Keep the flag off in the recommended profile.
+
+Keep four landing workers and a 256 KiB target. Six workers reduced landing wall time to 34.37 ms from 39.29 ms while FPS stayed around 6.9 and worker CPU time rose. The 512 KiB comparison halved the job count while both sizes measured 6.62 FPS and landing wall time stayed near 40.7 ms.
+
+Use `-RefreshCensus`, `-AheadIndex -VerifyAheadIndex`, and `-TimelineAtSeconds 203,233` on `scripts/compare-scarlett.ps1` for separate diagnostic runs. The timeline hooks and extra validation visits affect timings. Keep the optional coverage index off in the throughput profile until a matched screen shows its effect.

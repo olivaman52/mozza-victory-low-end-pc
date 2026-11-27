@@ -1,5 +1,415 @@
 [
   {
+    "path": "cool_fox/target/benchmarks/phase2-coverage-retry-pair.json",
+    "kind": "benchmark",
+    "label": "20261127-phase2-coverage-retry-pair"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-coverage-off-retry-activity.json",
+    "kind": "benchmark",
+    "label": "20261127-phase2-coverage-off-activity"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-coverage-on-retry-activity.json",
+    "kind": "benchmark",
+    "label": "20261127-phase2-coverage-on-activity"
+  },
+  {
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/coverage-off-retry-20261127/game.log",
+    "kind": "runtime",
+    "label": "20261127-phase2-coverage-off-retry"
+  },
+  {
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/coverage-on-retry-20261127/game.log",
+    "kind": "runtime",
+    "label": "20261127-phase2-coverage-on-retry"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-evidence-worktree.patch",
+    "kind": "patch",
+    "label": "20261127-phase2-evidence-worktree"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-evidence-harness-tests.txt",
+    "kind": "test",
+    "label": "20261127-phase2-evidence-harness-tests"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-historical-warmup-events.json",
+    "kind": "benchmark",
+    "label": "20261127-phase2-historical-warmup-events"
+  },
+  {
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/coverage-off-resumed-20261127/game.log",
+    "label": "20261127-phase2-coverage-off-interrupted",
+    "kind": "runtime"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-resumed-coverage-off-partial-raw.json",
+    "label": "20261127-phase2-coverage-off-raw-partial",
+    "kind": "benchmark"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-resumed-coverage-off-partial-summary.json",
+    "label": "20261127-phase2-coverage-off-summary-partial",
+    "kind": "benchmark"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/phase2-resumed-coverage-off-exit.txt",
+    "label": "20261127-phase2-coverage-off-exit-investigation",
+    "kind": "diagnostic"
+  },
+  {
+    "path": "cool_fox/target/benchmarks/warmup-recovery-fixture/warmup-summary.json",
+    "label": "20261127-phase2-warmup-export-fixture",
+    "kind": "benchmark"
+  },
+  {
+    "kind": "benchmark",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-refresh-census-summary.json",
+    "label": "20261127-phase2-coverage-refresh-census"
+  },
+  {
+    "kind": "diagnostic",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-critical-path-203.txt",
+    "label": "20261127-phase2-critical-path-203"
+  },
+  {
+    "kind": "diagnostic",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-critical-path-233.txt",
+    "label": "20261127-phase2-critical-path-233"
+  },
+  {
+    "label": "20261127-phase2-refresh-timeline-run",
+    "kind": "runtime",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/refresh-trace-resumed-20261127/game.log"
+  },
+  {
+    "label": "20261127-phase2-refresh-trace-release",
+    "kind": "build",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-refresh-diagnostic-build.txt"
+  },
+  {
+    "label": "20261127-phase2-coverage-census-capabilities",
+    "kind": "patch",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-refresh-and-capability.patch"
+  },
+  {
+    "label": "20261127-phase2-descriptor-caps-37-tests",
+    "kind": "test",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-descriptor-cap-tests.txt"
+  },
+  {
+    "label": "20261127-phase2-strict-bvh-caps-debug-gbv",
+    "kind": "test",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-bvh-caps-debug-gbv.txt"
+  },
+  {
+    "label": "20261127-phase2-strict-bvh-caps-plain",
+    "kind": "test",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-bvh-caps-plain.txt"
+  },
+  {
+    "label": "20261127-phase2-oversized-heap-original-validation",
+    "kind": "test",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-bvh-gbv-described.txt"
+  },
+  {
+    "label": "20261127-phase2-atomic-package-negative",
+    "kind": "test",
+    "path": "cool_fox/target/benchmarks/phase2-review-invalid-checkpoint-test.txt"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-phase2-landing-job-pair",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-landing-job-pair.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-phase2-landing-256-activity",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-job-256-activity.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-phase2-landing-512-activity",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-job-512-activity.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-write-watch-index-differential",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-refresh-watch-verified.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-strict-bvh-plain",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-bvh-plain.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-strict-bvh-validation-failure",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-bvh-debug-gbv.txt"
+  },
+  {
+    "kind": "runtime",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/job-256-resumed-20261127/game.log",
+    "label": "20261127-phase2-landing-256"
+  },
+  {
+    "kind": "runtime",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/job-512-resumed-20261127/game.log",
+    "label": "20261127-phase2-landing-512"
+  },
+  {
+    "kind": "patch",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-landing-job-size.patch",
+    "label": "20261127-phase2-landing-job-size-compiled"
+  },
+  {
+    "kind": "build",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-landing-job-build.txt",
+    "label": "20261127-phase2-landing-job-build"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-075230-phase2-landing-workers-pair",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-landing-workers-pair.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-075230-phase2-landing-six-activity",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-landing-six-activity.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-resumed-landing-job-tests",
+    "path": "cool_fox/target/benchmarks/phase2-resumed-landing-job-tests.txt"
+  },
+  {
+    "kind": "patch",
+    "label": "20261127-phase2-landing-job-size",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-landing-job-size.patch"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-074640-phase2-guest-clipping-pair",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-clipping-pair.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-074640-phase2-clip-on-activity",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-clip-on-activity.json"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-074833-phase2-landing-six",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/landing-six-20261127-074833/game.log"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-074246-phase2-clip-on",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/clip-on-20261127-074246/game.log"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-074120-phase2-clip-off-raw",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-clip-off-raw.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-074120-phase2-clip-off-summary",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-clip-off-summary.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-074120-phase2-clip-off-activity",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-clip-off-activity.json"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-073731-phase2-clip-off",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/clip-off-20261127-073731/game.log"
+  },
+  {
+    "kind": "build",
+    "label": "20261127-phase2-targeted-runtime-build",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-runtime-build.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-targeted-runtime-regressions",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-runtime-regressions.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-targeted-metrics-fixture",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-metrics-fixture.txt"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-072635-phase2-targeted-baseline-raw",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-baseline-raw.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-072635-phase2-targeted-baseline-summary",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-baseline-summary.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-072316-phase2-targeted-background-partial",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-baseline-activity.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-targeted-runtime-tests",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-runtime-tests.txt"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-072316-phase2-targeted-baseline",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/baseline-20261127-072316/game.log"
+  },
+  {
+    "kind": "patch",
+    "label": "20261127-phase2-targeted-runtime-candidate",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-runtime-candidate.patch"
+  },
+  {
+    "kind": "patch",
+    "label": "20261127-phase2-targeted-resume-source",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-resume.patch"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-targeted-resume-tests",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-resume-tests.txt"
+  },
+  {
+    "kind": "build",
+    "label": "20261127-phase2-targeted-resume-build",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-resume-build.txt"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-phase2-targeted-historical-counters",
+    "path": "cool_fox/target/benchmarks/phase2-targeted-historical-counters.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-phase2-span-off-late-raw",
+    "path": "cool_fox/target/benchmarks/phase2-span-off-late-raw.json"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-063214-phase2-timing-only",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-recovered/throughput-20261127-063214/game.log"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-063530-phase2-throughput-raw",
+    "path": "cool_fox/target/benchmarks/phase2-throughput-raw.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-063530-phase2-throughput-summary",
+    "path": "cool_fox/target/benchmarks/phase2-throughput-summary.json"
+  },
+  {
+    "kind": "build",
+    "label": "20261127-phase2-spans-quick-build",
+    "path": "cool_fox/target/benchmarks/phase2-spans-quick-build.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-spans-and-gbv",
+    "path": "cool_fox/target/benchmarks/phase2-spans-and-gbv.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-spans-quick-descriptor-tests",
+    "path": "cool_fox/target/benchmarks/phase2-spans-quick-descriptor-tests.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-memory-fixtures",
+    "path": "cool_fox/target/benchmarks/phase2-memory-fixtures.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-paired-metrics-fixture",
+    "path": "cool_fox/target/benchmarks/phase2-paired-metrics-fixture.txt"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-064523-phase2-span-on",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-recovered/span-on-20261127-064523/game.log"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-064853-phase2-span-on-raw",
+    "path": "cool_fox/target/benchmarks/phase2-span-on-raw.json"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-065035-phase2-span-off",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-recovered/span-off-20261127-065035/game.log"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-065425-phase2-span-paired",
+    "path": "cool_fox/target/benchmarks/phase2-span-paired.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-refresh-present-tests",
+    "path": "cool_fox/target/benchmarks/phase2-refresh-present-tests.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-intersection-fixtures",
+    "path": "cool_fox/target/benchmarks/phase2-intersection-fixtures.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-bvh-dxil-validation",
+    "path": "cool_fox/target/benchmarks/phase2-bvh-dxil-validation.txt"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-phase2-readback-merge-samples",
+    "path": "cool_fox/target/benchmarks/phase2-readback-merge-samples.json"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-062221-phase2-recovered-diagnostic",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-recovered/diagnostic-20261127-062221/game.log"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-062500-phase2-diagnostic-raw",
+    "path": "cool_fox/target/benchmarks/phase2-diagnostic-raw.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-062500-phase2-diagnostic-summary",
+    "path": "cool_fox/target/benchmarks/phase2-diagnostic-summary.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-focused-fixture-rerun",
+    "path": "cool_fox/target/benchmarks/phase2-release-tests-verified.txt"
+  },
+  {
+    "kind": "build",
+    "label": "20261127-phase2-resume-release-build",
+    "path": "cool_fox/target/benchmarks/phase2-resume-build.txt"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-resume-release-tests",
+    "path": "cool_fox/target/benchmarks/phase2-resume-release-tests.txt"
+  },
+  {
     "kind": "benchmark",
     "label": "20261127-060617-queue-only-settled-summary",
     "path": "../victory-scarlett-integration/cool_fox/target/benchmarks/integration-queue-only-warm-late.json"
@@ -68,5 +478,10 @@
     "kind": "patch",
     "label": "20261127-phase2-recovery",
     "path": "cool_fox/target/benchmarks/phase2-pre-scarlett.patch"
+  },
+  {
+    "kind": "patch",
+    "label": "20261127-phase2-recovered-current-source",
+    "path": "cool_fox/target/benchmarks/phase2-recovered-current.patch"
   }
 ]

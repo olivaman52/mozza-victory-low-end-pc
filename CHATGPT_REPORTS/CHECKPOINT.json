@@ -1,0 +1,45 @@
+{
+  "revision": "phase2-warmup-milestones-20261127",
+  "last_completed_benchmark": {
+    "label": "Coverage index matched retry",
+    "sample_started_utc": "2026-11-27T15:23:23Z",
+    "sample_seconds": 50,
+    "binary_sha256": "7f0d81955c17b329bc6e51a0fe5da9c9c2356444e9391eb4f10f5f29735cf5b1",
+    "result": "6.83 accepted-present FPS off, 6.73 on. Both exited 0 after close. Keep index disabled.",
+    "log": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/coverage-on-retry-20261127/game.log",
+    "export": "cool_fox/target/benchmarks/phase2-coverage-retry-pair.json"
+  },
+  "last_completed_test": {
+    "label": "Strict hardware pointer path and descriptor regressions",
+    "result": "Both RTX 3060 Ti modes passed exact bytes and sentinels. With GBV requested, debug layer was active with zero captured errors after the caps fix. 37 descriptor tests passed.",
+    "log": "cool_fox/target/benchmarks/phase2-resumed-bvh-caps-debug-gbv.txt"
+  },
+  "unfinished_task": "Complete 31-minute warm-cache run, verify normal close and warmed restart, then compile/test the separate texture queue change and sample the pre-deduplication lookup.",
+  "active_runs": [
+    {
+      "status": "running",
+      "pid": 29692,
+      "planned_settings": "Warm independent seed; four workers; 256 KiB; Series S; 1080p presentation; raw intervals; coverage, texture queue, census, and timelines disabled",
+      "log": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/warmup-31-resumed-20261127/game.log",
+      "binary": "cool_fox/target/x86_64-pc-windows-msvc/release/victory-phase2-refresh-diagnostics.exe",
+      "binary_sha256": "7f0d81955c17b329bc6e51a0fe5da9c9c2356444e9391eb4f10f5f29735cf5b1",
+      "source": "aa47688 plus saved refresh patch",
+      "cache": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/warmup-31-cache",
+      "data": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/warmup-31-data",
+      "measurement": "The first minute and minutes 2, 5, 10, 15, 20, 25, and 30, each as full 60 seconds",
+      "continuation": "After the final minute, gracefully close the verified window, reconcile warmup-summary.json and activity, inventory the cache, then restart with the same cache and warmup-restart-data.",
+      "started_utc": "2026-11-27T15:25:04.5735221Z",
+      "expected_end_utc": "2026-11-27T15:56:04.5735221Z",
+      "progress": "Recorded full minute-5/10/15/20 windows. Current run still producing frames. Saw matching opening-window viewpoint at minutes 4, 11 and 21. Last visible dark interior persisted."
+    }
+  ],
+  "partial_benchmark": {
+    "finished_utc": "2026-11-27T14:57:56.0707262Z",
+    "sample_utc": "2026-11-27T14:55:30Z",
+    "exit_code": 1,
+    "result": "6.53 accepted-present FPS from 393 intervals, median 150.63 ms, p95 187.33 ms, p99 222.05 ms; cause unverified.",
+    "sample_seconds": 60,
+    "label": "Coverage index off interrupted",
+    "log": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase2-targeted/coverage-off-resumed-20261127/game.log"
+  }
+}
