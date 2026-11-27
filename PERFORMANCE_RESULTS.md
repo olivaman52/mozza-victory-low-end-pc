@@ -27,3 +27,9 @@ The final release regenerated shader translations. The run recorded about 1,438 
 The final capture exported 349 profiling windows to `cool_fox/target/benchmarks/overhaul-checkpoint.json`. The last 30 matched windows averaged 6.80 FPS, a 144.8 ms median and a 172.6 ms p95 and p99, calculated as averages of window-level quantiles. The run log is `wasdekeys-179ad6e/logs/overhaul-1024-mip1-20261127-011800/game.log` under the local Victory data directory.
 
 The final run still averaged roughly 270 missing-pipeline operations and 619 dropped indirect operations per frame. The explicitly disabled ray-tracing structure builder accounted for about 255 of the missing-pipeline operations per frame in one sampled window. Descriptor work took about 36–45 ms looking at slots and caused about 17–26 ms of waits at list close in nearby windows. Readback and descriptor work overlap other timings. The path to 10 FPS requires further work in these areas plus validation of the missing graphics operations.
+
+## Phase 2 integration
+
+The preserved warm baseline averaged 6.89 FPS. The queue-only Scarlett port averaged 6.82 FPS in eleven later settled windows with the same profile and a separate clone of the warm cache. Texture processing fell from 18.35 to 15.27 ms while list-close wait was similar at 21.53 ms versus 21.12 ms. Both reports are sampled windows. The difference does not establish a gameplay speedup. The queue differential fixture proved ordering equivalence and its CPU-only benchmark was faster. The queue change is on the primary branch at `95aa317`.
+
+The default static-sampler bypass in the separate integration branch produced 905 creations and 926 loads, compared with 3 creations and 2,083 loads while retaining cache reuse. It exited before settling. The current branch uses the original cache policy. Details and conditions are in [Scarlett report](SCARLETT_REPORT.md).

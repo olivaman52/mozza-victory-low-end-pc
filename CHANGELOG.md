@@ -2,6 +2,8 @@
 
 ## Local development
 
+- Port the Scarlett texture queue's partitioned sort while preserving eligibility and exact selection order. Keep the static-sampler cache workaround isolated because it increased warm-start compilation. [Scarlett source commit](https://github.com/Yaekai/victory-scarlett-3070/commit/b4ed67d89844be579f84d88b5b1a93030a8b2a5b)
+
 - Make the card buffer cap and texture mip drop selectable through the Windows launcher while preserving upstream defaults.
 - Preserve the bounded host command-list pool with healthy commit headroom, even under physical RAM pressure. Release idle lists and preludes on low commit or a command-list close allocation failure.
 - Separate the indirect-light clamp from the ambient-strength setting for visual diagnosis. Default lighting is preserved.

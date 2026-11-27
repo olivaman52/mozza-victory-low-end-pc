@@ -1,0 +1,72 @@
+[
+  {
+    "kind": "benchmark",
+    "label": "20261127-060617-queue-only-settled-summary",
+    "path": "../victory-scarlett-integration/cool_fox/target/benchmarks/integration-queue-only-warm-late.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-phase2-summary-fixture",
+    "path": "cool_fox/target/benchmarks/phase2-metrics-tests.txt"
+  },
+  {
+    "kind": "build",
+    "label": "20261127-phase2-first-check",
+    "path": "cool_fox/target/benchmarks/phase2-resume-check.txt"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-024841-integration-startup-summary",
+    "path": "../victory-scarlett-integration/cool_fox/target/benchmarks/integration-both-startup.json"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-060617-queue-only",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/integration-queue-only/logs-20261127-060617/game.log"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-011800-phase1-reference",
+    "path": "%LOCALAPPDATA%/victory/wasdekeys-179ad6e/logs/overhaul-1024-mip1-20261127-011800/game.log"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-022944-scarlett-warm",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/scarlett/warm/logs-20261127-022944/game.log"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-023517-phase1-warm",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/phase1/warm/logs-20261127-023517/game.log"
+  },
+  {
+    "kind": "runtime",
+    "label": "20261127-024841-integration-warm",
+    "path": "%LOCALAPPDATA%/victory/bench-scarlett-74e7621/integration/warm/logs-20261127-024841/game.log"
+  },
+  {
+    "kind": "build",
+    "label": "20261127-011600-phase1-build",
+    "path": "build-log-2026-11-27_01-16-00.txt"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-011800-phase1-intervals",
+    "path": "cool_fox/target/benchmarks/overhaul-checkpoint.json"
+  },
+  {
+    "kind": "benchmark",
+    "label": "20261127-022944-scarlett-summary",
+    "path": "../victory-scarlett-integration/cool_fox/target/benchmarks/scarlett-warm.json"
+  },
+  {
+    "kind": "test",
+    "label": "20261127-aae3811-texture-queue-profile",
+    "path": "../victory-scarlett-integration/cool_fox/target/benchmarks/texture-queue-profile.txt"
+  },
+  {
+    "kind": "patch",
+    "label": "20261127-phase2-recovery",
+    "path": "cool_fox/target/benchmarks/phase2-pre-scarlett.patch"
+  }
+]

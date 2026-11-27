@@ -65,6 +65,10 @@ cool_fox/victory.toml
 *.rar
 *.txt
 
+# Generated local AI review evidence
+/CHATGPT_REPORTS/LOGS/
+/CHATGPT_REPORTS/LOG_MANIFEST.csv
+
 # Editor / OS noise
 .vs/
 .idea/
