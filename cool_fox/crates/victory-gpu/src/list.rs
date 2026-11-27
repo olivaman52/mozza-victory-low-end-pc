@@ -20,6 +20,8 @@ use crate::resource::PAGEABLE_IIDS;
 
 #[cfg(windows)]
 pub(crate) mod thin;
+#[cfg(windows)]
+pub(crate) mod indirect_drops;
 
 const ALLOCATOR_IIDS: [Iid; 4] = [
     guid(
@@ -1830,6 +1832,7 @@ mod state {
     ) {
         super::count_draw();
         if indirect != 0 {
+            super::indirect_drops::note(super::indirect_drops::Reason::IndirectMeshAbi);
             static ONCE: std::sync::Once = std::sync::Once::new();
             ONCE.call_once(|| tracing::warn!("indirect mesh dispatches dropped"));
             return;
@@ -1900,6 +1903,7 @@ extern "system" fn draw(_: This) {
 /// through the host's indirect execution (`State::execute_indirect`).
 /// shortcut: signatures that change root arguments are dropped (logged
 /// once per signature).
+#[cfg(windows)]
 extern "system" fn execute_indirect(
     this: This,
     signature: This,
@@ -1909,43 +1913,42 @@ extern "system" fn execute_indirect(
     count: This,
     count_offset: u64,
 ) {
+    use indirect_drops::Reason;
+
     count_draw();
     let Some((stride, args)) = crate::signature::layout(signature) else {
+        indirect_drops::note(Reason::UnsupportedSignature);
         return;
     };
-    let address = crate::resource::buffer_bytes(arguments).map(|(p, _)| p as u64 + offset);
-    let counter = crate::resource::buffer_bytes(count).map(|(p, _)| p as u64 + count_offset);
-    let mut ran = false;
-    #[cfg(windows)]
-    if let ([[kind, ..]], Some(address)) = (args, address)
-        && (count.is_null() || counter.is_some())
-    {
-        const DISPATCH: u32 = 2;
-        const DISPATCH_SINGLE: u32 = 105;
-        let kind = if *kind == DISPATCH_SINGLE { DISPATCH } else { *kind };
-        with_state(this, |list, s| {
-            ran = s.execute_indirect(list, (kind, stride, max), address, counter);
-        });
-    } else {
-        #[cfg(all(windows, feature = "diagnostics"))]
-        crate::pipeline::note_why(format!(
-            "indirect signature {args:?}: arguments in a buffer {}, count in a buffer {}",
-            address.is_some(),
-            count.is_null() || counter.is_some()
-        ));
-    }
-    if ran {
+    let address = crate::resource::buffer_bytes(arguments).and_then(|(p, _)| (p as u64).checked_add(offset));
+    let counter = crate::resource::buffer_bytes(count).and_then(|(p, _)| (p as u64).checked_add(count_offset));
+    let result = match (args, address) {
+        ([[kind @ (0 | 1 | 2 | 10 | 105), ..]], Some(address)) if count.is_null() || counter.is_some() => {
+            let kind = if *kind == 105 { 2 } else { *kind };
+            let mut result = Err(Reason::NoHostList);
+            with_state(this, |list, s| {
+                result = s.execute_indirect(list, (kind, stride, max), address, counter);
+            });
+            result
+        }
+        ([[0 | 1 | 2 | 10 | 105, ..]], None) => Err(Reason::InvalidArgumentBuffer),
+        ([[0 | 1 | 2 | 10 | 105, ..]], Some(_)) => Err(Reason::InvalidCountBuffer),
+        _ => Err(Reason::UnsupportedSignature),
+    };
+    let Err(reason) = result else { return };
+    indirect_drops::note(reason);
+    if !tracing::enabled!(tracing::Level::DEBUG) {
         return;
     }
-    INDIRECT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     static SEEN: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
     if !seen.contains(&(signature as usize)) {
         seen.push(signature as usize);
-        tracing::info!(
+        tracing::debug!(
             stride,
             ?args,
             max,
+            ?reason,
             address = ?address.map(|a| format!("{a:#x}")),
             counted = !count.is_null(),
             "indirect execution dropped (first time for this signature)"
@@ -1953,11 +1956,16 @@ extern "system" fn execute_indirect(
     }
 }
 
-/// Indirect executions dropped since the last call.
-pub(crate) fn take_indirect() -> u64 {
-    INDIRECT.swap(0, std::sync::atomic::Ordering::Relaxed)
+#[cfg(not(windows))]
+extern "system" fn execute_indirect(_: This, _: This, _: u32, _: This, _: u64, _: This, _: u64) {
+    count_draw();
 }
-static INDIRECT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Indirect executions dropped since the last call.
+#[cfg(windows)]
+pub(crate) fn take_indirect() -> u64 {
+    indirect_drops::take()
+}
 fn count_dispatch() {
     DISPATCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }

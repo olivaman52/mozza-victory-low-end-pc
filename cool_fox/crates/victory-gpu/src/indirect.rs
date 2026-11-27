@@ -33,6 +33,7 @@
 //! dispatches, the budget) cut legitimate work beyond them; raise them if
 //! the title needs more.
 
+use crate::list::indirect_drops::Reason as IndirectDrop;
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D12::*;
@@ -373,16 +374,19 @@ fn validate_layout(
     (kind, stride, records): (u32, u32, u32),
     src_offset: u64,
     count_offset: Option<u64>,
-) -> Option<u64> {
-    let min = min_stride(kind)?;
-    if stride < min || !stride.is_multiple_of(4) || !src_offset.is_multiple_of(4) {
-        return None;
+) -> Result<u64, IndirectDrop> {
+    let min = min_stride(kind).ok_or(IndirectDrop::InvalidLayout)?;
+    if stride < min || !stride.is_multiple_of(4) {
+        return Err(IndirectDrop::InvalidLayout);
+    }
+    if !src_offset.is_multiple_of(4) {
+        return Err(IndirectDrop::ArgumentAlignment);
     }
     if count_offset.is_some_and(|off| !off.is_multiple_of(4)) {
-        return None;
+        return Err(IndirectDrop::CountAlignment);
     }
-    let bytes = u64::from(stride).checked_mul(u64::from(records))?;
-    (bytes <= u64::from(u32::MAX)).then_some(bytes)
+    let bytes = u64::from(stride) * u64::from(records);
+    (bytes <= u64::from(u32::MAX)).then_some(bytes).ok_or(IndirectDrop::InvalidLayout)
 }
 
 /// Records, in `list`, the non-destructive clamp of up to `records` records of
@@ -391,37 +395,21 @@ fn validate_layout(
 /// buffer, at offset `0`. The scratch buffer is left in `INDIRECT_ARGUMENT`
 /// until the next clamp into it: executions read it with no barrier of
 /// their own. Replaces the list's compute root signature and pipeline
-/// (callers bind theirs after). `None` if the clamp or alignment is not
-/// available.
+/// (callers bind theirs after). Reports the first clamp failure.
 pub(crate) fn bound(
     list: &HostList,
     src: (&ID3D12Resource, u64),
     count: Option<(&ID3D12Resource, u64)>,
     spec: (u32, u32, u32),
-) -> Option<ID3D12Resource> {
+    ahead: bool,
+) -> Result<ID3D12Resource, IndirectDrop> {
     let bytes = validate_layout(spec, src.1, count.map(|(_, off)| off))?;
-    let (c, budget, dst) = (clamp()?, list.budget()?, list.indirect_scratch(bytes)?);
-    clamp_into(list, c, &dst, budget, src, count, spec, false).then_some(dst)
-}
-
-/// [`bound`] for a window of records clamped ahead of the draws that will
-/// read them (`crate::draw`'s windows; no count buffer). The records past
-/// the ones the title filled are whatever the buffer holds, and each
-/// record clamped charges the list's budget when it is clamped: a slot of
-/// all ones, clamped to the most a mesh dispatch runs (65,535 groups),
-/// charged a sixteenth of the budget, so sixteen of them emptied every
-/// draw of the list after them (run 93: "the largest group count asked for
-/// 4294967295", 43 to 153 such records a frame). Here a record that asks
-/// for more than can run is left empty and charges nothing; a record
-/// clamped alone is clamped and charged as before.
-pub(crate) fn bound_ahead(
-    list: &HostList,
-    src: (&ID3D12Resource, u64),
-    spec: (u32, u32, u32),
-) -> Option<ID3D12Resource> {
-    let bytes = validate_layout(spec, src.1, None)?;
-    let (c, budget, dst) = (clamp()?, list.budget()?, list.indirect_scratch(bytes)?);
-    clamp_into(list, c, &dst, budget, src, None, spec, true).then_some(dst)
+    let clamp = clamp().ok_or(IndirectDrop::ClampUnavailable)?;
+    let budget = list.budget().ok_or(IndirectDrop::ClampBudgetBuffer)?;
+    let dst = list.indirect_scratch(bytes).ok_or(IndirectDrop::ClampScratchBuffer)?;
+    clamp_into(list, clamp, &dst, budget, src, count, spec, ahead)
+        .then_some(dst)
+        .ok_or(IndirectDrop::ClampAddressing)
 }
 
 /// [`record_clamp_as`] into `list`'s scratch buffer `dst`, from the state
@@ -449,7 +437,7 @@ fn clamp_into(
 /// Records the clamp into `dst`, which is in state `before` (common, or
 /// indirect arguments after an earlier clamp into it), and leaves `dst` in
 /// `INDIRECT_ARGUMENT`. `ahead`: the records are a window clamped ahead of
-/// their draws ([`bound_ahead`]). False, with nothing recorded, if the
+/// their draws, so unused records do not consume the list's budget. False, with nothing recorded, if the
 /// layout or the addresses do not fit the clamp.
 #[allow(clippy::too_many_arguments)]
 fn record_clamp_as(
@@ -462,7 +450,7 @@ fn record_clamp_as(
     (kind, stride, records): (u32, u32, u32),
     ahead: bool,
 ) -> bool {
-    let Some(bytes) = validate_layout(
+    let Ok(bytes) = validate_layout(
         (kind, stride, records),
         src_offset,
         count.map(|(_, off)| off),
@@ -2068,23 +2056,23 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
 
     #[test]
     fn rejects_unaligned_or_undersized_layouts() {
-        assert_eq!(validate_layout((0, 16, 4), 0, None), Some(64));
-        assert_eq!(validate_layout((1, 20, 4), 64, Some(128)), Some(80));
-        assert_eq!(validate_layout((2, 12, 0), 0, Some(0)), Some(0));
-        assert_eq!(validate_layout((10, 16, 2), 8, None), Some(32));
+        assert_eq!(validate_layout((0, 16, 4), 0, None), Ok(64));
+        assert_eq!(validate_layout((1, 20, 4), 64, Some(128)), Ok(80));
+        assert_eq!(validate_layout((2, 12, 0), 0, Some(0)), Ok(0));
+        assert_eq!(validate_layout((10, 16, 2), 8, None), Ok(32));
         // Undersized strides for each kind.
-        assert_eq!(validate_layout((0, 12, 1), 0, None), None);
-        assert_eq!(validate_layout((1, 16, 1), 0, None), None);
-        assert_eq!(validate_layout((2, 8, 1), 0, None), None);
-        assert_eq!(validate_layout((10, 8, 1), 0, None), None);
+        assert_eq!(validate_layout((0, 12, 1), 0, None), Err(IndirectDrop::InvalidLayout));
+        assert_eq!(validate_layout((1, 16, 1), 0, None), Err(IndirectDrop::InvalidLayout));
+        assert_eq!(validate_layout((2, 8, 1), 0, None), Err(IndirectDrop::InvalidLayout));
+        assert_eq!(validate_layout((10, 8, 1), 0, None), Err(IndirectDrop::InvalidLayout));
         // Unknown kind.
-        assert_eq!(validate_layout((3, 16, 1), 0, None), None);
+        assert_eq!(validate_layout((3, 16, 1), 0, None), Err(IndirectDrop::InvalidLayout));
         // Unaligned stride, source offset, or count offset.
-        assert_eq!(validate_layout((0, 18, 1), 0, None), None);
-        assert_eq!(validate_layout((0, 16, 1), 2, None), None);
-        assert_eq!(validate_layout((0, 16, 1), 0, Some(6)), None);
+        assert_eq!(validate_layout((0, 18, 1), 0, None), Err(IndirectDrop::InvalidLayout));
+        assert_eq!(validate_layout((0, 16, 1), 2, None), Err(IndirectDrop::ArgumentAlignment));
+        assert_eq!(validate_layout((0, 16, 1), 0, Some(6)), Err(IndirectDrop::CountAlignment));
         // Total byte size exceeding 32-bit ByteAddressBuffer indexing.
-        assert_eq!(validate_layout((1, 20, u32::MAX), 0, None), None);
+        assert_eq!(validate_layout((1, 20, u32::MAX), 0, None), Err(IndirectDrop::InvalidLayout));
     }
 
     /// WARP D3D12 execution test proving:
@@ -2507,13 +2495,13 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
         // First two calls fit inside the initial 64 KiB scratch buffer and
         // must reuse the exact same `ID3D12Resource`, which stays readable
         // as arguments between them.
-        let b1 = bound(&list, (&src_buf, 0), Some((&count_buf, 0)), (0, 16, 64)).unwrap();
+        let b1 = bound(&list, (&src_buf, 0), Some((&count_buf, 0)), (0, 16, 64), false).unwrap();
         assert_eq!(
             list.indirect_state(&b1),
             args,
             "a clamp leaves the scratch readable as arguments"
         );
-        let b2 = bound(&list, (&src_buf, 64), Some((&count_buf, 0)), (1, 20, 128)).unwrap();
+        let b2 = bound(&list, (&src_buf, 64), Some((&count_buf, 0)), (1, 20, 128), false).unwrap();
         assert_eq!(
             b1.as_raw(),
             b2.as_raw(),
@@ -2529,7 +2517,7 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
             D3D12_RESOURCE_STATE_COMMON,
             "a new scratch buffer is common"
         );
-        let b3 = bound(&list, (&src_buf, 0), Some((&count_buf, 0)), (1, 20, 5000)).unwrap();
+        let b3 = bound(&list, (&src_buf, 0), Some((&count_buf, 0)), (1, 20, 5000), false).unwrap();
         assert_eq!(b3.as_raw(), grown.as_raw());
         assert_ne!(
             b3.as_raw(),
@@ -2559,7 +2547,7 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
             D3D12_RESOURCE_STATE_COMMON,
             "a reset list starts with a common scratch buffer"
         );
-        let b4 = bound(&list, (&src_buf, 0), Some((&count_buf, 0)), (1, 20, 4096)).unwrap();
+        let b4 = bound(&list, (&src_buf, 0), Some((&count_buf, 0)), (1, 20, 4096), false).unwrap();
         assert_eq!(
             b4.as_raw(),
             b3.as_raw(),
@@ -2696,8 +2684,10 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
             }
             sig.unwrap()
         };
-        // Three records of 65,535 x 16 groups: about half the budget each.
-        let Some((big, big_ptr)) = host.shared_buffer(3 * u64::from(STRIDE)) else {
+        // Each of these two records charges exactly half the budget
+        // (2^20 groups at 64 units per group). This fills it under either
+        // oversize policy, without asking the host to run the big dispatches.
+        let Some((big, big_ptr)) = host.shared_buffer(2 * u64::from(STRIDE)) else {
             return;
         };
         let Some((small, small_ptr)) = host.shared_buffer(u64::from(STRIDE)) else {
@@ -2708,8 +2698,8 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
         };
         // SAFETY: mapped buffers of these sizes; nothing runs yet.
         unsafe {
-            for i in 0..3 {
-                let words = [65535u32, 16, 1];
+            for i in 0..2 {
+                let words = [32768u32, 32, 1];
                 std::ptr::copy_nonoverlapping(
                     words.as_ptr().cast::<u8>(),
                     big_ptr.add(i * STRIDE as usize),
@@ -2723,8 +2713,8 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
         let hits_gpu = unsafe { hits_buf.GetGPUVirtualAddress() };
         for round in 0..2 {
             // Spends the budget (clamped, not executed), then one group.
-            bound(&list, (&big, 0), None, (KIND_DISPATCH, STRIDE, 3)).unwrap();
-            let scratch = bound(&list, (&small, 0), None, (KIND_DISPATCH, STRIDE, 1)).unwrap();
+            bound(&list, (&big, 0), None, (KIND_DISPATCH, STRIDE, 2), false).unwrap();
+            let scratch = bound(&list, (&small, 0), None, (KIND_DISPATCH, STRIDE, 1), false).unwrap();
             // SAFETY: an open list; the worker's root signature and
             // pipeline; buffers the test holds until the list has run.
             unsafe {
@@ -2745,7 +2735,7 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
         }
         // A recording with only the small record: the budget is empty
         // again, so it runs.
-        let scratch = bound(&list, (&small, 0), None, (KIND_DISPATCH, STRIDE, 1)).unwrap();
+        let scratch = bound(&list, (&small, 0), None, (KIND_DISPATCH, STRIDE, 1), false).unwrap();
         // SAFETY: as above.
         unsafe {
             list.list.SetComputeRootSignature(&worker.root);
@@ -2912,7 +2902,7 @@ void main(uint3 g : SV_GroupID, uint i : SV_GroupIndex) {
             unsafe { std::ptr::write_bytes(hits_ptr, 0, 256) };
             for (groups, src) in windows.iter().zip(&sources) {
                 let spec = (KIND_DISPATCH, STEP, groups.len() as u32);
-                let scratch = bound_ahead(&list, (src, 0), spec).unwrap();
+                let scratch = bound(&list, (src, 0), None, spec, true).unwrap();
                 assert_eq!(list.indirect_state(&scratch), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
                 // SAFETY: an open list; the worker's root signature and
                 // pipeline; buffers the test holds until the list has run.

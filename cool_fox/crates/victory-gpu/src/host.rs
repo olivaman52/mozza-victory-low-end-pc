@@ -4834,6 +4834,8 @@ impl Host {
         let ((allocator, list), fence, event, sent) = (f.list.clone(), f.fence.clone(), f.event, f.sent);
         let copy_queue = f.queue.clone();
         let waiting = std::time::Instant::now();
+        let trace = land::readback_trace::sample(land::readback_trace::Kind::CardFetch).is_some();
+        let mut fence_wait = None;
         // The flights the fetch runs behind: those in the line by now have
         // been given to the queue. On the copy queue, those landed here.
         let ahead = match copy_queue {
@@ -4860,7 +4862,9 @@ impl Host {
                     fence.SetEventOnCompletion(sent, event)?;
                     #[cfg(feature = "diagnostics")]
                     let _card = crate::timeline::card_wait(None);
+                    let began = trace.then(std::time::Instant::now);
                     WaitForSingleObject(event, INFINITE);
+                    fence_wait = began.map(|began| began.elapsed());
                     return Ok(behind);
                 }
                 // In the order of the queue: the sends of title bytes so
@@ -4875,7 +4879,9 @@ impl Host {
                 fence.SetEventOnCompletion(sent, event)?;
                 #[cfg(feature = "diagnostics")]
                 let _card = crate::timeline::card_wait(None);
+                let began = trace.then(std::time::Instant::now);
                 WaitForSingleObject(event, INFINITE);
+                fence_wait = began.map(|began| began.elapsed());
                 Ok(after)
             })()
         };
@@ -4885,6 +4891,19 @@ impl Host {
         };
         let us = waiting.elapsed().as_micros() as u64;
         RELAY_STATS[3].fetch_add(us, Ordering::Relaxed);
+        if let Some(fence_wait) = fence_wait {
+            tracing::info!(
+                target: "victory_gpu::readback",
+                producer = "card_diff_relay",
+                consumer = "shadow_merge",
+                pieces = pieces.len(),
+                fetched_bytes = total,
+                copy_queue = copy_queue.is_some(),
+                fence_wait_us = fence_wait.as_micros() as u64,
+                record_submit_overlap_and_wait_us = us,
+                "GPU readback transfer sample"
+            );
+        }
         {
             use crate::shadow::CARD_STATS;
             CARD_STATS[3].fetch_add(pieces.len() as u64, Ordering::Relaxed);
@@ -4909,9 +4928,10 @@ impl Host {
                     }
                 }
                 let mut notes = land::Notes::default();
+                let mut addressed = Vec::new();
                 for run in pieces[jobs[j].clone()].chunk_by(|a, b| std::sync::Arc::ptr_eq(&a.0, &b.0)) {
-                    let addressed: Vec<(usize, usize, usize)> =
-                        run.iter().map(|(_, lo, hi, at)| (*lo, *hi, data + *at as usize)).collect();
+                    addressed.clear();
+                    addressed.extend(run.iter().map(|(_, lo, hi, at)| (*lo, *hi, data + *at as usize)));
                     // SAFETY: the mapping of the fetched bytes, `total` of
                     // them; the copy into it has run, and the next waits
                     // for this call.
@@ -7656,6 +7676,8 @@ fn split_line(frames: f64) {
     let e: Vec<f64> = crate::watch::early_asks().iter().map(|&n| n as f64 / frames).collect();
     let a: Vec<f64> = crate::watch::asks().iter().map(|&n| n as f64 / frames).collect();
     let h: Vec<f64> = crate::draw::HEAP_SPLIT.iter().map(|n| n.swap(0, Ordering::Relaxed) as f64 / 1e6 / frames).collect();
+    let [full, partial, dirty, fallback, duplicate, select_ns] =
+        crate::draw::HEAP_SWEEP.each_ref().map(|n| n.swap(0, Ordering::Relaxed));
     let s: Vec<f64> = crate::shadow::send_stats().iter().map(|&n| n as f64 / frames).collect();
     tracing::info!(
         "preparing per frame, the submitting thread: {:.1} ms asking the write watch ({:.1} of them finding what to ask), {:.1} putting the title's bytes under flights' \
@@ -7720,6 +7742,14 @@ fn split_line(frames: f64) {
         h[2],
         aside::WAITED.swap(0, Ordering::Relaxed) as f64 / 1e3 / frames,
     );
+    if full + partial + dirty != 0 {
+        tracing::info!(
+            target: "victory_gpu::descriptor_sweep",
+            frames, full, partial, dirty, fallback, duplicate,
+            selection_ms = select_ns as f64 / 1e6,
+            "buffer descriptor sweep"
+        );
+    }
 }
 
 /// Whether a submission's refreshes of host copies run on several threads,
@@ -8819,6 +8849,8 @@ struct Meter {
     copy_stats_frames: u64,
     #[cfg(feature = "diagnostics")]
     frame_intervals: Option<(Option<std::time::Instant>, Vec<f64>)>,
+    #[cfg(feature = "diagnostics")]
+    raw_frame_intervals: bool,
     drawn: u64,
     logged: std::time::Instant,
     /// The caption the window had, once read.
@@ -8834,7 +8866,10 @@ impl Meter {
             #[cfg(feature = "diagnostics")]
             copy_stats_frames: 0,
             #[cfg(feature = "diagnostics")]
-            frame_intervals: crate::switch::on("VICTORY_FRAME_METRICS").then(|| (None, Vec::with_capacity(64))),
+            frame_intervals: (crate::switch::on("VICTORY_FRAME_METRICS") || crate::switch::on("VICTORY_RAW_FRAME_INTERVALS"))
+                .then(|| (None, Vec::with_capacity(64))),
+            #[cfg(feature = "diagnostics")]
+            raw_frame_intervals: crate::switch::on("VICTORY_RAW_FRAME_INTERVALS"),
             drawn: crate::draw::drawn(),
             logged: now,
             caption: None,
@@ -8889,6 +8924,9 @@ impl Meter {
         let indirect = crate::list::take_indirect() as f64 / frames;
         #[cfg(feature = "diagnostics")]
         if let Some((_, intervals)) = self.frame_intervals.as_mut() {
+            if self.raw_frame_intervals && !intervals.is_empty() {
+                tracing::info!(target: "victory_gpu::frame_metrics", intervals_ms = ?intervals, "raw presentation intervals");
+            }
             if let Some([p50_ms, p95_ms, p99_ms]) = frame_latency(intervals) {
                 tracing::info!(
                     target: "victory_gpu::frame_metrics",

@@ -31,6 +31,13 @@ impl Slots {
         }
     }
 
+    /// Conservatively report membership for a slot outside this bitset.
+    fn may_contain(&self, slot: u32) -> bool {
+        self.0.get(slot as usize / 64).is_none_or(|bits| {
+            bits.load(std::sync::atomic::Ordering::Acquire) & (1 << (slot % 64)) != 0
+        })
+    }
+
     /// Whether it was there.
     fn remove(&self, slot: u32) -> bool {
         use std::sync::atomic::Ordering::{AcqRel, Acquire};
@@ -40,21 +47,19 @@ impl Slots {
         })
     }
 
-    fn of(n: usize, mut bits: u64, out: &mut Vec<u32>, which: &impl Fn(u32) -> bool) {
+    fn of(n: usize, mut bits: u64, out: &mut Vec<u32>) {
         while bits != 0 {
             let slot = n as u32 * 64 + bits.trailing_zeros();
             bits &= bits - 1;
-            if which(slot) {
-                out.push(slot);
-            }
+            out.push(slot);
         }
     }
 
-    /// Those that `which` says, in order.
-    fn all(&self, which: impl Fn(u32) -> bool) -> Vec<u32> {
+    /// Slots selected by the same bit mask in each 64-slot word, in order.
+    fn all(&self, mask: u64) -> Vec<u32> {
         let mut out = Vec::new();
         for (n, bits) in self.0.iter().enumerate() {
-            Self::of(n, bits.load(std::sync::atomic::Ordering::Acquire), &mut out, &which);
+            Self::of(n, bits.load(std::sync::atomic::Ordering::Acquire) & mask, &mut out);
         }
         out
     }
@@ -65,7 +70,7 @@ impl Slots {
         let mut out = Vec::new();
         for (n, bits) in self.0.iter().enumerate() {
             if bits.load(Acquire) != 0 {
-                Self::of(n, bits.swap(0, AcqRel), &mut out, &|_| true);
+                Self::of(n, bits.swap(0, AcqRel), &mut out);
             }
         }
         out
@@ -212,6 +217,9 @@ pub(crate) struct HostHeap {
     /// other memory there makes stale, and which to look at again when the
     /// runtime maps, unmaps or writes memory ([`remapped`]).
     placed: std::sync::Arc<Mutex<Spans>>,
+    /// Conservative membership in `placed`, updated under the lock for
+    /// each descriptor slot. A stale entry can only cost an extra lock.
+    placed_slots: Option<Slots>,
 }
 
 /// The spans of every view heap made ([`HostHeap::placed`]), for the
@@ -836,6 +844,11 @@ fn stale_rule() -> Rule {
         Ok("overlap") => Rule::Overlap,
         _ => Rule::Start,
     })
+}
+
+fn spans_quick() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("VICTORY_SPANS_QUICK").as_deref() == Ok("1"))
 }
 
 /// The runtime mapped or unmapped title memory `[at, at + len)`, or is
@@ -1649,6 +1662,7 @@ impl HostHeap {
                 }
                 spans
             },
+            placed_slots: (!sampler && spans_quick()).then(|| Slots::new(count as usize)),
         };
         // A slot never written is undefined: shaders reading one (a slot
         // the title wrote in a way we do not know, or a table entry no
@@ -2671,13 +2685,15 @@ impl HostHeap {
 
     /// The title slots that hold buffer views.
     pub(crate) fn buffer_slots(&self) -> Vec<u32> {
-        self.buffers.all(|_| true)
+        self.buffers.all(u64::MAX)
     }
 
     /// Of [`HostHeap::buffer_slots`], those of one of `parts` parts: every
     /// slot is in the same part each time.
     pub(crate) fn buffer_slots_of(&self, part: u32, parts: u32) -> Vec<u32> {
-        self.buffers.all(|slot| slot % parts == part)
+        debug_assert!(parts != 0 && 64 % parts == 0 && part < parts);
+        let mask = (part..64).step_by(parts as usize).fold(0u64, |mask, bit| mask | (1u64 << bit));
+        self.buffers.all(mask)
     }
 
     /// The title slots whose buffer view was written, or went, since the
@@ -2733,7 +2749,11 @@ impl HostHeap {
             }
             _ => None,
         };
-        let stale = {
+        let stale = if placed_view.is_none()
+            && self.placed_slots.as_ref().is_some_and(|slots| !slots.may_contain(index))
+        {
+            Vec::new()
+        } else {
             use std::sync::atomic::Ordering::Relaxed;
             let mut placed = self.placed.lock().unwrap_or_else(|e| e.into_inner());
             let span = placed_view.and_then(|(resource, start, first, held)| {
@@ -2741,6 +2761,11 @@ impl HostHeap {
             });
             match span {
                 Some((start, end, first, held)) => {
+                    // `shows` records an entry even if `note` declines
+                    // a conflicting span. A later overwrite must forget it.
+                    if let Some(slots) = &self.placed_slots {
+                        slots.put(index);
+                    }
                     SPANNED[0].fetch_min(start, Relaxed);
                     SPANNED[1].fetch_max(end, Relaxed);
                     placed.rule = stale_rule();
@@ -2752,6 +2777,9 @@ impl HostHeap {
                 }
                 None => {
                     placed.forget(index);
+                    if let Some(slots) = &self.placed_slots {
+                        slots.remove(index);
+                    }
                     Vec::new()
                 }
             }
@@ -4877,6 +4905,31 @@ fn null_view(at: D3D12_CPU_DESCRIPTOR_HANDLE) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn placed_slot_marks_preserve_neighbours_and_unknown_slots() {
+        let slots = Slots::new(64);
+        assert!(!slots.may_contain(0));
+        assert!(slots.may_contain(64));
+        slots.put(0);
+        assert!(slots.may_contain(0));
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for _ in 0..1024 {
+                    slots.put(1);
+                    assert!(slots.may_contain(1));
+                    assert!(slots.remove(1));
+                }
+            });
+            for _ in 0..1024 {
+                assert!(slots.remove(0));
+                assert!(!slots.may_contain(0));
+                slots.put(0);
+            }
+        });
+        assert!(slots.may_contain(0));
+        assert!(!slots.may_contain(1));
+    }
+
     /// A view of a host copy that begins at a later level shows the same
     /// levels of it.
     #[test]
@@ -5672,8 +5725,8 @@ mod tests {
         for slot in [199, 0, 64, 63, 130, 64] {
             set.put(slot);
         }
-        assert_eq!(set.all(|_| true), [0, 63, 64, 130, 199]);
-        assert_eq!(set.all(|slot| slot % 2 == 0), [0, 64, 130]);
+        assert_eq!(set.all(u64::MAX), [0, 63, 64, 130, 199]);
+        assert_eq!(set.all(0x5555_5555_5555_5555), [0, 64, 130]);
         assert!(set.remove(64) && !set.remove(64) && !set.remove(5));
         assert_eq!(set.take(), [0, 63, 130, 199]);
         assert!(set.take().is_empty());

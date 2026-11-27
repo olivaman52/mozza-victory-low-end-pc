@@ -78,6 +78,59 @@ pub(crate) const RADIANCE: (u8, u32) = (1, 16);
 /// Where the light the air scatters is.
 pub(crate) const AIR: (u8, u32) = (1, 32);
 
+impl Role {
+    pub(crate) fn output(self) -> (u8, u32) {
+        match self {
+            Self::Resolve => LIGHT,
+            Self::Radiance => RADIANCE,
+            Self::Air => AIR,
+        }
+    }
+}
+
+/// Observe scene depth and lighting resource extents without running the stand-in.
+#[cfg(feature = "diagnostics")]
+pub(crate) fn trace_dimensions() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| crate::switch::on("VICTORY_RENDER_DIMENSIONS"))
+}
+
+/// The base-level extent of a 2D texture or volume. Array slices do not
+/// increase the image dimensions. This is the host resource extent, which
+/// can differ from the region covered by a particular view or viewport.
+#[cfg(feature = "diagnostics")]
+pub(crate) fn texture_extent(desc: &D3D12_RESOURCE_DESC) -> Option<[u64; 3]> {
+    let depth = match desc.Dimension {
+        D3D12_RESOURCE_DIMENSION_TEXTURE2D => 1,
+        D3D12_RESOURCE_DIMENSION_TEXTURE3D => u64::from(desc.DepthOrArraySize),
+        _ => return None,
+    };
+    (desc.Width != 0 && desc.Height != 0 && depth != 0).then_some([desc.Width, u64::from(desc.Height), depth])
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LightingExtents {
+    scene_depth: Option<[u64; 3]>,
+    output: Option<[u64; 3]>,
+}
+
+/// Log the first dimensions per stage, then log changes in its resources.
+#[cfg(feature = "diagnostics")]
+pub(crate) fn note_dimensions(role: Role, scene_depth: Option<[u64; 3]>, output: Option<[u64; 3]>) {
+    static LAST: Mutex<[Option<LightingExtents>; 3]> = Mutex::new([None; 3]);
+    let index = match role {
+        Role::Resolve => 0,
+        Role::Radiance => 1,
+        Role::Air => 2,
+    };
+    let current = LightingExtents { scene_depth, output };
+    let last = LAST.lock().unwrap_or_else(|e| e.into_inner())[index].replace(current);
+    if last != Some(current) {
+        tracing::info!(?role, ?scene_depth, ?output, "lighting resource extents (width, height, depth)");
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Set {
     Off,
@@ -528,6 +581,25 @@ mod tests {
         assert_eq!(role(b"..CS_CacheScreenSpaceRadiance_eed2fc35.."), Some(Role::Radiance));
         assert_eq!(role(b"CS_AccumulateLocalLightInscatteringVolume_7e2f5eef"), Some(Role::Air));
         assert_eq!(role(b"CS_TemporalResolve"), None);
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn texture_extents_distinguish_volume_depth_from_array_slices() {
+        let mut desc = D3D12_RESOURCE_DESC {
+            Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+            Width: 1280,
+            Height: 720,
+            DepthOrArraySize: 16,
+            ..Default::default()
+        };
+        assert_eq!(texture_extent(&desc), Some([1280, 720, 1]));
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+        assert_eq!(texture_extent(&desc), Some([1280, 720, 16]));
+        desc.DepthOrArraySize = 0;
+        assert_eq!(texture_extent(&desc), None);
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        assert_eq!(texture_extent(&desc), None);
     }
 
     /// The passes compile with the system's compiler and the host takes them.

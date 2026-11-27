@@ -201,8 +201,12 @@ pub(crate) fn record(list: &ID3D12GraphicsCommandList, target: Target) -> Option
 pub(crate) fn land(back: &Back) {
     static COPIED: AtomicU64 = AtomicU64::new(0);
     static STALE: AtomicU64 = AtomicU64::new(0);
+    #[cfg(feature = "diagnostics")]
+    let sample = crate::land::readback_trace::sample(crate::land::readback_trace::Kind::Texture);
     let _mapping = crate::watch::title_memory_reading();
     let _ticket_guard = TICKETS.lock().unwrap_or_else(|e| e.into_inner());
+    #[cfg(feature = "diagnostics")]
+    let guarded = sample.map(|_| std::time::Instant::now());
     if !back.ticket.valid.load(Ordering::Acquire) {
         let skipped = STALE.fetch_add(1, Ordering::Relaxed) + 1;
         if skipped.is_power_of_two() {
@@ -224,6 +228,8 @@ pub(crate) fn land(back: &Back) {
             return;
         }
     }
+    #[cfg(feature = "diagnostics")]
+    let mapped = sample.map(|_| std::time::Instant::now());
     for (i, (footprint, &rows)) in back.footprints.iter().zip(&back.rows).enumerate() {
         let (mip, slice) = (i as u32 % back.mips, i as u32 / back.mips);
         let f = footprint.Footprint;
@@ -241,7 +247,28 @@ pub(crate) fn land(back: &Back) {
     }
     // SAFETY: mapped above.
     unsafe { back.buffer.Unmap(0, None) };
+    #[cfg(feature = "diagnostics")]
+    let tiled_at = sample.map(|_| std::time::Instant::now());
     crate::host::copy_mapped(at as *mut u8, tiled.as_ptr(), size, true);
+    #[cfg(feature = "diagnostics")]
+    if let (Some(began), Some(guarded), Some(mapped), Some(tiled_at)) = (sample, guarded, mapped, tiled_at) {
+        let published = std::time::Instant::now();
+        tracing::info!(
+            producer = "shader_written_texture",
+            consumer = "guest_memory_publication",
+            cpu_read = "possible_for_texture_kind",
+            resource = back.ticket.owner,
+            destination_start = at,
+            destination_end = end,
+            destination_bytes = size,
+            subresources = back.footprints.len(),
+            mapping_wait_us = (guarded - began).as_micros() as u64,
+            inspect_and_map_us = (mapped - guarded).as_micros() as u64,
+            retile_us = (tiled_at - mapped).as_micros() as u64,
+            publish_us = (published - tiled_at).as_micros() as u64,
+            "GPU texture readback sample"
+        );
+    }
     let copied = COPIED.fetch_add(1, Ordering::Relaxed) + 1;
     if copied == 1 || copied.is_multiple_of(128) {
         tracing::info!(copied, bytes = size, "texture readback landed");

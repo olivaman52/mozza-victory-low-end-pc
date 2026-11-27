@@ -169,7 +169,7 @@ pub(crate) fn stamped(at: usize, now: u64) {
 /// The viewports' sizes seen (each said once): whether the title draws its
 /// scene at sizes of its choice.
 pub(crate) fn viewport(width: u32, height: u32) {
-    if !on() || width < 1024 || height < 576 {
+    if (!on() && !crate::ambient::trace_dimensions()) || width < 1024 || height < 576 {
         return;
     }
     static SEEN: Mutex<Vec<(u32, u32)>> = Mutex::new(Vec::new());

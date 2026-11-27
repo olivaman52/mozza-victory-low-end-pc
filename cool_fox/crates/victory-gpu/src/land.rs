@@ -32,6 +32,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
+#[cfg(feature = "diagnostics")]
+pub(crate) mod readback_trace;
+
 /// The unit pieces are cut in (of title memory), and the guards' blocks.
 pub(crate) const BLOCK: usize = 64 << 10;
 /// The unit title memory is there or not in.
@@ -552,6 +555,7 @@ impl Notes {
 /// # Safety
 /// `now` and `held` are ours from 0 to the last part's end, and nothing but
 /// the card writes `now` there, nothing but this call `held`.
+/// A non-null `copy` points to the shadow until `notes` is flushed.
 pub(crate) unsafe fn piece(
     title: usize,
     now: *const u8,
@@ -582,6 +586,13 @@ unsafe fn piece_at(
     let Some(end) = parts.last().map(|p| p.1) else {
         return 0;
     };
+    #[cfg(feature = "diagnostics")]
+    let mut trace = if readback_trace::enabled() {
+        // SAFETY: `copy` is null or held through this merge and the flush.
+        unsafe { copy.as_ref() }.and_then(|copy| readback_trace::Merge::start(copy, title, parts))
+    } else {
+        None
+    };
     // From here until the piece is put the runtime changes no mapping: our
     // view's address stays where the title sees `title`. Not waited for: if
     // a change is under way, what the record of the views says now does
@@ -605,13 +616,22 @@ unsafe fn piece_at(
         });
         let Some(first) = differing.iter().position(|&d| d) else {
             for_pages(title, parts, |_, _| count(stat::PAGES, 1));
+            #[cfg(feature = "diagnostics")]
+            if let Some(trace) = trace {
+                trace.finish(false, 0, 0);
+            }
             return 0;
         };
         let last = differing.iter().rposition(|&d| d).unwrap_or(first);
         let (from, to) = (((base + first) * PAGE).max(title), ((base + last + 1) * PAGE).min(title + end));
         let opening = std::time::Instant::now();
         crate::watch::landing(from, to - from);
-        spent(stat::NOTES, opening);
+        let opened = spent(stat::NOTES, opening);
+        #[cfg(feature = "diagnostics")]
+        if let Some(trace) = &mut trace {
+            trace.guards(opened - opening);
+        }
+        let _ = opened;
     }
     let into = beside.unwrap_or(title);
     let since = crate::watch::changes();
@@ -647,6 +667,10 @@ unsafe fn piece_at(
         blocks += done.new;
         dwords += done.dwords;
         missing += u64::from(!done.there);
+        #[cfg(feature = "diagnostics")]
+        if done.dwords != 0 && let Some(trace) = &mut trace {
+            trace.written(title + from, title + from + n);
+        }
         if done.new > 0 {
             new_pages += 1;
             if beside.is_some() {
@@ -675,6 +699,10 @@ unsafe fn piece_at(
     count(stat::MISSING, missing);
     crate::shadow::PUT[0].fetch_add(u64::from(dwords > 0), Ordering::Relaxed);
     crate::shadow::PUT[2].fetch_add(dwords * 4, Ordering::Relaxed);
+    #[cfg(feature = "diagnostics")]
+    if let Some(trace) = trace {
+        trace.finish(beside.is_some(), dwords, missing);
+    }
     dwords * 4
 }
 

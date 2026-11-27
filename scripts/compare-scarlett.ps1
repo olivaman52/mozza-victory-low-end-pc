@@ -5,7 +5,11 @@ param(
     [Parameter(Mandatory)][string]$Cache,
     [Parameter(Mandatory)][string]$Data,
     [Parameter(Mandatory)][string]$LogDirectory,
-    [switch]$Cold
+    [switch]$Cold,
+    [switch]$RawFrameIntervals,
+    [switch]$RenderDimensions,
+    [switch]$ReadbackTrace,
+    [switch]$SpansQuick
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,6 +67,10 @@ $settings = [ordered]@{
     VICTORY_HEAP_PASS_MAX = '0'
     VICTORY_HEAP_CHANGED_MAX = '0'
 }
+if ($RawFrameIntervals) { $settings.VICTORY_RAW_FRAME_INTERVALS = '1' }
+if ($RenderDimensions) { $settings.VICTORY_RENDER_DIMENSIONS = '1' }
+if ($ReadbackTrace) { $settings.VICTORY_READBACK_TRACE = '1' }
+if ($SpansQuick) { $settings.VICTORY_SPANS_QUICK = '1' }
 
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = $Exe
@@ -96,8 +104,8 @@ try {
     $stderrTask = $process.StandardError.BaseStream.CopyToAsync($stderr)
     Write-Output "Victory PID $($process.Id). Log directory $LogDirectory"
     $process.WaitForExit()
-    $stdoutTask.GetAwaiter().GetResult()
-    $stderrTask.GetAwaiter().GetResult()
+    $null = $stdoutTask.GetAwaiter().GetResult()
+    $null = $stderrTask.GetAwaiter().GetResult()
     $process.ExitCode | Set-Content -LiteralPath (Join-Path $LogDirectory 'exit-code.txt')
     exit $process.ExitCode
 } finally {

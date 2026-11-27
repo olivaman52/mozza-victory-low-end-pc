@@ -459,6 +459,15 @@ pub(crate) fn host_pipeline<'a>(this: This) -> Option<&'a host::HostPipeline> {
     make::ready(&pipeline(this).host)
 }
 
+/// Resolves a host PSO and preserves its failure reason for indirect calls.
+#[cfg(windows)]
+pub(crate) fn indirect_pipeline<'a>(this: This) -> Result<&'a host::HostPipeline, crate::list::indirect_drops::Reason> {
+    if this.is_null() {
+        return Err(crate::list::indirect_drops::Reason::MissingPipeline);
+    }
+    make::indirect_ready(&pipeline(this).host)
+}
+
 /// Host pipelines queued and not made yet.
 #[cfg(windows)]
 pub(crate) fn making() -> u64 {

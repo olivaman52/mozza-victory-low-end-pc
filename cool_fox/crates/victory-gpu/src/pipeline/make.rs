@@ -165,6 +165,9 @@ impl Pending {
 /// not translate, else "refused" or "being made"; `None` if it has one.
 #[cfg(feature = "diagnostics")]
 pub(crate) fn missing(p: &Pending) -> Option<String> {
+    if let Some(reason) = p.left_out {
+        return Some(reason.into());
+    }
     match p.made.get() {
         Some(Some(_)) => None,
         None => Some("being made".into()),
@@ -235,6 +238,30 @@ pub(crate) fn ready(p: &Arc<Pending>) -> Option<&HostPipeline> {
     if p.left_out.is_some() {
         return None;
     }
+    request(p);
+    p.made.get()?.as_ref()
+}
+
+/// The same request as `ready`, with the actual result of inspecting the
+/// pipeline recorded at the indirect call's failure boundary.
+pub(super) fn indirect_ready(p: &Arc<Pending>) -> Result<&HostPipeline, crate::list::indirect_drops::Reason> {
+    use crate::list::indirect_drops::Reason;
+
+    if p.left_out.is_some() {
+        return Err(Reason::RayTracingDependency);
+    }
+    request(p);
+    match p.made.get() {
+        Some(Some(pipeline)) => Ok(pipeline),
+        None => Err(Reason::PipelinePending),
+        Some(None) if p.shaders.iter().any(|shader| matches!(shader.translated.get(), Some(None))) => {
+            Err(Reason::ShaderTranslation)
+        }
+        Some(None) => Err(Reason::PipelineRejected),
+    }
+}
+
+fn request(p: &Arc<Pending>) {
     // A still-pending pipeline was requested by the title too. Prewarm it
     // on the next launch, even if this run never got to use it.
     if !p.used.load(Ordering::Relaxed) && !p.used.swap(true, Ordering::Relaxed) {
@@ -244,7 +271,6 @@ pub(crate) fn ready(p: &Arc<Pending>) -> Option<&HostPipeline> {
         start(p, REQUESTED);
         wait(p, crate::frame::current());
     }
-    p.made.get()?.as_ref()
 }
 
 /// Makes `p` on this thread if it is not made yet (waiting for a worker
