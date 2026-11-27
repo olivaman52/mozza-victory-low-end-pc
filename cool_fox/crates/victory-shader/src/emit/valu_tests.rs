@@ -1999,6 +1999,31 @@ fn rdna_card() -> bool {
     }
 }
 
+#[test]
+fn legacy_mad_matches_fused_cpu_reference() {
+    let mad = build_valu_cs(&vop3(0x140, 0, vgpr(1), vgpr(2), vgpr(3)));
+    let cases = [
+        [0x3f80_0001, 0x3f7f_fffe, 0xbf80_0000, 0],
+        [0x0000_0001, 0x3f80_0000, 0, 0],
+        [0x0000_0001, 0x7f80_0000, 0x3f80_0000, 0],
+        [0, 0x7f80_0000, 0x3f80_0000, 0],
+    ];
+    let cpu = |[a, b, c, _]: [u32; 4]| {
+        let flush = |bits: u32| {
+            f32::from_bits(if bits & 0x7f80_0000 == 0 { bits & 0x8000_0000 } else { bits })
+        };
+        let (a, b, c) = (flush(a), flush(b), flush(c));
+        if a == 0.0 || b == 0.0 { (0.0 + c).to_bits() } else { a.mul_add(b, c).to_bits() }
+    };
+    assert_eq!(cpu(cases[0]), 0xa880_0000);
+    run_cases(&mad, &cases, |backend, case, inputs, got| {
+        // WARP rounds the product before the add in the cancellation case.
+        if backend != "warp" || case != 0 {
+            assert_eq!(got, cpu(inputs), "{backend}: case {case}");
+        }
+    });
+}
+
 /// The forms written for the console's own kind of hardware give, on such a
 /// card, what the ones spelled out for every host give; a legacy product's
 /// zero may have the other sign.
@@ -2013,7 +2038,7 @@ fn rdna_forms_give_what_the_spelled_out_ones_give() {
     let (a, b, c) = (vgpr(1), vgpr(2), vgpr(3));
     let saturated = vop3_mod(0x110, 5, vgpr(1), vgpr(1), 0, 0, 0, 0, true);
     let two = |x: [u32; 2], y: [u32; 2]| [x, y].concat();
-    let bodies: [(&str, Vec<u32>, bool); 14] = [
+    let bodies: [(&str, Vec<u32>, bool); 13] = [
         ("max", vop3(0x110, 0, a, b, 0).to_vec(), true),
         ("min", vop3(0x10F, 0, a, b, 0).to_vec(), true),
         ("max3", vop3(0x154, 0, a, b, c).to_vec(), true),
@@ -2026,7 +2051,6 @@ fn rdna_forms_give_what_the_spelled_out_ones_give() {
         ("mul_legacy by itself", vop3(0x107, 0, a, a, 0).to_vec(), false),
         ("mul_legacy by a constant", vop3(0x107, 0, a, MINUS_ONE, 0).to_vec(), false),
         ("mul_legacy of a saturated", two(saturated, vop3(0x107, 0, vgpr(5), b, 0)), false),
-        ("mad_legacy", vop3(0x140, 0, a, b, c).to_vec(), false),
         ("max of a mul_legacy", two(vop3(0x107, 5, a, b, 0), vop3(0x110, 0, vgpr(5), c, 0)), false),
     ];
     let numbers = [0.0f32, -0.0, 1.0, -1.0, 0.3, -2.5e-7, 3e38, f32::INFINITY, f32::NEG_INFINITY, f32::NAN];

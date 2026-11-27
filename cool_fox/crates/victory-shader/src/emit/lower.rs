@@ -3989,6 +3989,34 @@ impl<'a> Lower<'a> {
         self.s.m.select(c, z, zero, m)
     }
 
+    /// Flushes subnormal f32 inputs to signed zero.
+    fn ftz(&mut self, x: V) -> V {
+        let c = self.cur;
+        let bits = self.as_int(x);
+        let exp_mask = self.s.m.i32(0x7f80_0000);
+        let sign_mask = self.s.m.i32(0x8000_0000);
+        let zero = self.s.m.i32(0);
+        let exp = self.s.m.bin(c, Bin::And, bits, exp_mask);
+        let subnormal_or_zero = self.s.m.cmp(c, pred::EQ, exp, zero);
+        let signed_zero = self.s.m.bin(c, Bin::And, bits, sign_mask);
+        let flushed = self.s.m.select(c, subnormal_or_zero, signed_zero, bits);
+        self.as_float(flushed)
+    }
+
+    /// RDNA 2 fuses the legacy multiply-add and flushes its inputs.
+    /// A zero factor contributes +0 even when the other factor is non-finite.
+    fn legacy_fmad(&mut self, a: V, b: V, addend: V) -> V {
+        let c = self.cur;
+        let (a, b, addend) = (self.ftz(a), self.ftz(b), self.ftz(addend));
+        let fused = self.fmad(a, b, addend);
+        let zero = self.s.m.f32(0);
+        let az = self.s.m.cmp(c, pred::OEQ, a, zero);
+        let bz = self.s.m.cmp(c, pred::OEQ, b, zero);
+        let zero_factor = self.s.m.bin(c, Bin::Or, az, bz);
+        let zero_sum = self.s.m.bin(c, Bin::Add, zero, addend);
+        self.s.m.select(c, zero_factor, zero_sum, fused)
+    }
+
     // ---- lane booleans ----
 
     fn boolean(&mut self, b: Bool, at: usize) -> Result<V, Why> {
@@ -8352,21 +8380,19 @@ impl<'a> Lower<'a> {
                         let m = self.s.m.bin(c, Bin::Mul, a, bb);
                         self.s.m.bin(c, Bin::Add, m, acc)
                     }
-                    _ => {
-                        let m = self.legacy_mul(a, bb);
-                        self.s.m.bin(c, Bin::Add, m, acc)
-                    }
+                    _ => self.legacy_fmad(a, bb, acc),
                 };
                 float(self, r)
             }
-            "v_mad_f32" | "v_madak_f32" | "v_madmk_f32" | "v_mad_legacy_f32" => {
+            "v_mad_f32" | "v_madak_f32" | "v_madmk_f32" => {
                 let (a, bb, cc) = (f(self, 0)?, f(self, 1)?, f(self, 2)?);
-                let m = if name == "v_mad_legacy_f32" {
-                    self.legacy_mul(a, bb)
-                } else {
-                    self.s.m.bin(c, Bin::Mul, a, bb)
-                };
+                let m = self.s.m.bin(c, Bin::Mul, a, bb);
                 let r = self.s.m.bin(c, Bin::Add, m, cc);
+                float(self, r)
+            }
+            "v_mad_legacy_f32" => {
+                let (a, bb, cc) = (f(self, 0)?, f(self, 1)?, f(self, 2)?);
+                let r = self.legacy_fmad(a, bb, cc);
                 float(self, r)
             }
             "v_max3_f32" | "v_min3_f32" | "v_med3_f32" => {
