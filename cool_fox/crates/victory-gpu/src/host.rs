@@ -8851,10 +8851,48 @@ struct Meter {
     frame_intervals: Option<(Option<std::time::Instant>, Vec<f64>)>,
     #[cfg(feature = "diagnostics")]
     raw_frame_intervals: bool,
+    #[cfg(feature = "diagnostics")]
+    present_results: PresentResults,
     drawn: u64,
     logged: std::time::Instant,
     /// The caption the window had, once read.
     caption: Option<Vec<u16>>,
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Default)]
+struct PresentResults {
+    not_accepted: u32,
+    first_error: Option<windows::core::HRESULT>,
+}
+
+#[cfg(feature = "diagnostics")]
+impl PresentResults {
+    fn accept(&mut self, status: windows::core::HRESULT) -> bool {
+        if status == windows::Win32::Foundation::S_OK {
+            return true;
+        }
+        self.not_accepted += 1;
+        if status.is_err() {
+            self.first_error.get_or_insert(status);
+        }
+        false
+    }
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+#[test]
+fn presentation_intervals_exclude_occluded_and_failed_calls() {
+    use windows::Win32::Foundation::{DXGI_STATUS_OCCLUDED, S_OK};
+    use windows::Win32::Graphics::Dxgi::DXGI_ERROR_DEVICE_REMOVED;
+
+    let mut results = PresentResults::default();
+    assert!(results.accept(S_OK));
+    assert!(!results.accept(DXGI_STATUS_OCCLUDED));
+    assert!(!results.accept(DXGI_ERROR_DEVICE_REMOVED));
+    assert!(results.accept(S_OK));
+    assert_eq!(results.not_accepted, 2);
+    assert_eq!(results.first_error, Some(DXGI_ERROR_DEVICE_REMOVED));
 }
 
 impl Meter {
@@ -8870,6 +8908,8 @@ impl Meter {
                 .then(|| (None, Vec::with_capacity(64))),
             #[cfg(feature = "diagnostics")]
             raw_frame_intervals: crate::switch::on("VICTORY_RAW_FRAME_INTERVALS"),
+            #[cfg(feature = "diagnostics")]
+            present_results: PresentResults::default(),
             drawn: crate::draw::drawn(),
             logged: now,
             caption: None,
@@ -8882,8 +8922,9 @@ impl Meter {
         self.since.elapsed() >= std::time::Duration::from_secs(1)
     }
 
-    /// Counts a presented frame.
-    fn frame(&mut self, hwnd: HWND) {
+    /// Counts a presentation attempt for the preparation and copy meters.
+    /// Only that call's S_OK result counts in the presentation intervals.
+    fn frame(&mut self, hwnd: HWND, _status: windows::core::HRESULT) {
         #[cfg(feature = "diagnostics")]
         tracing::debug!(target: "victory_gpu::frame", token = crate::frame::current(), "present");
         #[cfg(feature = "diagnostics")]
@@ -8892,7 +8933,9 @@ impl Meter {
         #[cfg(feature = "diagnostics")]
         {
             self.copy_stats_frames += 1;
-            if let Some((last, intervals)) = self.frame_intervals.as_mut() {
+            if self.present_results.accept(_status)
+                && let Some((last, intervals)) = self.frame_intervals.as_mut()
+            {
                 let now = std::time::Instant::now();
                 if let Some(last) = last.replace(now) {
                     intervals.push(now.duration_since(last).as_secs_f64() * 1e3);
@@ -8904,6 +8947,20 @@ impl Meter {
             return;
         }
         let drawn = crate::draw::drawn();
+        #[cfg(feature = "diagnostics")]
+        let accepted_frames = {
+            let results = std::mem::take(&mut self.present_results);
+            if results.not_accepted != 0 {
+                tracing::info!(
+                    target: "victory_gpu::frame_metrics",
+                    attempted = self.frames,
+                    not_accepted = results.not_accepted,
+                    first_error = ?results.first_error,
+                    "DXGI presentation results"
+                );
+            }
+            self.frames - results.not_accepted
+        };
         let frames = f64::from(self.frames);
         let fps = frames / elapsed.as_secs_f64();
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
@@ -8931,7 +8988,7 @@ impl Meter {
                 tracing::info!(
                     target: "victory_gpu::frame_metrics",
                     samples = intervals.len(),
-                    fps,
+                    fps = f64::from(accepted_frames) / elapsed.as_secs_f64(),
                     p50_ms,
                     p95_ms,
                     p99_ms,
@@ -9483,11 +9540,11 @@ impl Host {
             #[cfg(feature = "diagnostics")]
             crate::replay::record::present(texture, state);
             let mut showing = crate::timeline::span("the host's Present");
-            let _ = p.swap_chain.Present(0, DXGI_PRESENT(0));
+            let status = p.swap_chain.Present(0, DXGI_PRESENT(0));
             showing.next("the frame meter");
             #[cfg(feature = "diagnostics")]
             p.panel.frame(p.meter.line_due());
-            p.meter.frame(p.hwnd);
+            p.meter.frame(p.hwnd, status);
             showing.end();
             #[cfg(feature = "diagnostics")]
             return Some(probe.is_some_and(|b| crate::capture::black(&b)));
