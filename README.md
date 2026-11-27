@@ -1,380 +1,200 @@
-# victory-gtx1660
+# Victory — Low-End PC
 
-Patches, settings and launch scripts that took a console title from about
-360–410 ms per frame to about 100–106 ms per frame (about 10 fps) on our
-test machine under Linux, on top of the public fork
-[codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
-`f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
+**An experimental, AI-assisted performance and graphics compatibility fork of Victory, focused on memory-constrained Windows PCs and mid-range GPUs.**
 
-> **Notice (2026-11-26, evening):** the repository `codec-d/cool_fox` these
-> patches apply to no longer answers on GitHub (404). The steps below need a
-> copy of it at commit `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`. If you already
-> cloned it, they still work. We do not redistribute cool_fox: it is not our
-> code, and its history carries identifiers of the title that we do not
-> publish. Its base, [avatarmanz/VIctory-7900XTX](https://github.com/avatarmanz/VIctory-7900XTX),
-> is still online, but our patches were written against cool_fox and have not
-> been tried on it. This page will be updated if cool_fox returns or once the
-> patches are ported to a base that is available.
+Based on [WASDeKeys/victory-low-end-pc](https://github.com/WASDeKeys/victory-low-end-pc), with its inherited cool_fox source and selected, individually evaluated improvements from other Victory forks. Development uses OpenAI Codex for implementation, profiling and testing, with technical reviews of the resulting evidence.
 
-Jump to: [Results](#results) · [Linux](#how-to-reproduce-on-linux) · [Windows](#how-to-reproduce-on-windows) · [Known defects](#known-defects-in-this-configuration)
+The aim is to improve actual frame throughput, memory management, rendering correctness and stability — not to inflate FPS by dropping required rendering operations or counting generated frames.
 
-## What this is and is not
+> **Development preview — source and research only.** This is not a complete or ready-to-play release. The public tree deliberately excludes `bcpack-tables.bin` pending confirmation of its independent redistribution rights. Consequently, it cannot currently be built as-is. Some source changes are experimental and have not passed full runtime validation. See [publication and build status](#publication-and-build-status).
 
-- It is the cool_fox fork source (`cool_fox/`), already carrying patches
-  0001–0002, plus the remaining patches (`patches/`), a settings file and
-  launch scripts for Linux and Windows (`scripts/`), and the measurements
-  behind them (`RESULTS.md`). Clone this repository alone and nothing else
-  needs downloading — not the fork, not any patch — except the game title.
-- It contains **no game files, code, assets, captures or logs**. You need your
-  own copy of the title.
-- It is not affiliated with or endorsed by the title's developer or publisher,
-  nor by the authors of VIctory or cool_fox.
-- One machine, a handful of runs: the ~100 ms figure comes from **five clean
-  runs** of 4 to 8 minutes of scene each.
+[Performance](#windows-performance) · [Changes](#development-progress) · [Known limitations](#known-limitations) · [Reports](#open-development-reports) · [Roadmap](#roadmap) · [Credits](#credits)
 
-## Results
+## Windows performance
 
-First playable scene, console profile "Series S". Frame time = the median of
-the fork's own frame statistics line over the steady scene (not an external
-tool). Details per run in [RESULTS.md](RESULTS.md).
+### Test hardware
 
-| Configuration | ms per frame | fps | Runs |
-|---|---|---|---|
-| cool_fox `f4b48ad`, unmodified, its launcher's settings | 360–410 | 2.4–2.8 | 1 (15 min) |
-| + patches 0001–0002, `LEVELS_ON_DEMAND=0`, `TEXTURE_MIP_DROP=2` | 271–291 | 3.4–3.7 | 5 (7–15 min each) |
-| + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=256`, `TEXTURE_MIP_DROP=1` (**current settings**: sharper textures, same speed) | 98–112 | 9–10 | 5 (4.5–6 min of scene each; medians 98, 112.2, 101.9, 106, 107.7), all clean |
-| the same with `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` (first settings found) | 100–106 | 9.4–9.9 | 5 (4–8 min of scene each; medians 102.5, 100.6, 104.3, 106.4, 101.4), all clean |
+| Component | Test system |
+|---|---|
+| CPU | Intel Core i7-12700F (8 P-cores, 4 E-cores, 20 threads) |
+| GPU | NVIDIA GeForce RTX 3060 Ti, 8 GiB VRAM |
+| RAM | 32 GiB |
+| Platform | Windows, Direct3D 12 |
+| Console profile | Series S |
+| Presentation resolution | 1920 × 1080; internal scene resolution not verified |
+| Frame generation | None |
 
-Machine: our test machine — Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
-LTS), NVIDIA driver 620.73.04 (open kernel modules rebuilt with NVIDIA's
-[PR #1542](https://github.com/NVIDIA/open-gpu-kernel-modules/pull/1542) against
-random soft lockups, issue #1540), Wine from GE-Proton11-6 with vkd3d-proton
-from Proton Experimental, Microsoft's `d3dcompiler_47.dll` in the prefix.
+### Development benchmarks
 
-The last step moves memory, it does not skip work: copies of the title's
-buffers and memory windows are kept in the card's memory instead of the PC's,
-and texture copies start one mip level further down so that this fits in the
-card's memory.
+The following measurements are from local Windows development builds, not from a build of this incomplete public snapshot.
 
-## Known defects (in this configuration)
+| Configuration | Reported FPS | Mean frame time |
+|---|---:|---:|
+| Original WASDeKeys stock, 512 MiB buffer cap, mip drop 3 | 2.42 | 413 ms |
+| Same stock build, 1,024 MiB cap, mip drop 3 | 4.34 | 230.4 ms |
+| Commit-aware command-list recycling, 1,024 MiB, mip drop 3 | 6.45 | 155.1 ms |
+| Phase 1 final release, 1,024 MiB, mip drop 1 | 6.79 | 147.3 ms |
+| Preserved Phase 1 warm checkpoint | 6.89 | 145.2 ms |
+| Phase 2 clean baseline | 6.82 | — |
+| Phase 2 descriptor-clipping control | 6.93 | — |
+| Phase 2 coverage-index retry, index off | 6.83 | 146.50 ms |
 
-- **Cards with less than the measured card's memory are below what was measured.** The memory settings reserve about 1.8 GB of video memory for copies of the title's buffers on top of textures; on the measured card that just fits (one texture level
-  sharper already costs 15 %). On a 4 GB card they overflow: one user reports
-  about 3 fps and a black picture. Untested starting point for 4 GB:
-  `VICTORY_TEXTURE_MIP_DROP=3`, `VICTORY_CARD_BUFFERS_MB=1024`,
-  `VICTORY_CARD_WINDOWS_MB=256` (set them before launching; on Windows add
-  `-KeepEnv` to `run.cmd`). With 8 GB or more, try
-  `VICTORY_TEXTURE_MIP_DROP=0`. **Do not lower `VICTORY_CARD_BUFFERS_MB` below
-  1024**: measured here, 768 or 640 loses the whole gain (back to about
-  275 ms per frame), and raising it to 1280–1536 gains nothing; a larger
-  `VICTORY_CARD_WINDOWS_MB` did not help either (768: about 3–5 ms slower than
-  256 in runs of equal length).
+The Phase 1 final release measured roughly 2.8× the reported throughput of the initial stock run on this machine. This is an observed end-to-end difference across configuration and code changes, not an isolated or universally reproducible speedup. In particular, texture settings, scene timing and background workload differ between some runs.
 
-- **Only the first playable scene was measured.** Nothing later in the title
-  (open areas, driving, streets with traffic) has been run by us: expect it to
-  be slower there, as the fork's own README reports for its author's card, and
-  it may show defects we have not seen (a black picture was reported by one
-  user in an open area).
+The best cited controlled opening-scene comparison measured **6.93 accepted presentations per second**. A separate long six-worker run recorded individual one-minute windows up to **7.71 accepted presentations per second**; those later windows are historical observations, not a matched benchmark or proof of a stable 7.71 FPS renderer.
 
-- **Characters' heads are missing in most runs** (about 13 of 15): the head
-  geometry never reaches the picture and the hair is deformed, from the first
-  seconds of the scene to the end of the run; in the other runs heads and hair
-  are correct with the same build and settings. The same defect is seen with
-  unmodified cool_fox on this machine; not seen with the older tree. Cause not
-  found yet. Ruled out: texture settings, the speed settings, mesh output
-  limits, the integer buffer view path (`patches/optional/0007`).
-- **Ray-traced lighting is not computed**: the fork's ambient-light stand-in
-  (`VICTORY_AMBIENT`) replaces it, so lighting and shadows are approximate.
-- **Textures start one mip level down** (`VICTORY_TEXTURE_MIP_DROP=1`; with 3 they are visibly softer; 0 does not fit next to the buffer copies on the measured card) — compare with drop 2
-  (which gives the 271–291 ms row).
-- **The start screen was not passed with the monitors awake** on this setup
-  (unexplained). The runs were made with the screens put to sleep with DPMS
-  (`scripts/dpms.sh`, `DPMS=1` for `run.sh`).
+Earlier measurements use the inherited frame statistics; newer measurements use raw accepted DXGI presentation intervals. Neither independently verifies displayed or rendered frame counts. No frame generation was used. Rendering is incomplete, so these results must not be interpreted as fully correct gameplay performance, broad compatibility or performance in later environments.
 
-## Patches
+Full evidence: [Performance results](PERFORMANCE_RESULTS.md) · [Benchmark history CSV](CHATGPT_REPORTS/BENCHMARK_HISTORY.csv) · [Recommended configuration](RECOMMENDED_CONFIG.md).
 
-| File | What it does | Author |
+### Shader and pipeline warm-up
+
+Historical one-minute windows from the approximately seven-hour six-worker run:
+
+| Elapsed window | Accepted-present FPS | p95 frame time | Peak logged pending pipelines |
+|---|---:|---:|---:|
+| 5–6 min | 7.36 | 165.76 ms | 3 |
+| 10–11 min | 7.71 | 150.07 ms | 0 |
+| 15–16 min | 7.58 | 150.32 ms | 0 |
+| 20–21 min | 7.71 | 153.58 ms | 0 |
+| 30–31 min | 7.64 | 155.82 ms | 0 |
+
+These observations suggest that an early benchmark can understate later throughput. They do not establish that shader compilation caused the change, because scene content and system activity were not controlled throughout. The long run survived until a requested shutdown; it does not establish complete rendering correctness or general stability.
+
+A separate controlled four-worker warm-cache investigation had interim windows of 6.89, 7.11 and 6.89 accepted presents per second at minutes five, ten and fifteen. The final measurement and warmed restart were still pending in the supplied report snapshot. Preserve compatible caches and distinguish shader resolution, active translation and pending pipeline creation when comparing results.
+
+See the [shader warm-up report](CHATGPT_REPORTS/SHADER_WARMUP_REPORT.md) for methodology, measurements and outstanding validation.
+
+## Development progress
+
+### Implemented and investigated
+
+- Commit-aware command-list recycling: retain reusable lists with healthy commit headroom and trim on low commit or allocation failure.
+- Configurable card-buffer budget and texture mip selection, with lower-memory fallback profiles.
+- Pipeline-worker panic recovery and targeted shader arithmetic and BC7 channel-rotation corrections.
+- Incremental descriptor candidate deduplication, sparse iteration and readback scratch/exclusion reuse.
+- Explicit indirect-rejection diagnostics, raw presentation intervals, latency percentiles, render-resource extent logging and benchmark exports.
+- Selective Scarlett texture-queue ordering optimization, validated against the original selection behavior.
+- BVH address bookkeeping corrections, heap-owned descriptor directory reservations and hardware capability-aware descriptor heap probing.
+
+Selected tests have passed, including focused descriptor and coverage tests, CPU reference shader arithmetic, WARP indirect and queue fixtures, and an RTX 3060 Ti producer/consumer pointer fixture that preserved exact output bytes and adjacent sentinels. The latter does not establish full in-title BVH correctness. GPU-based validation was requested in one fixture run, but activation was not independently confirmed.
+
+### Experimental results that did not justify a default change
+
+| Experiment | Control → candidate | Decision |
 |---|---|---|
-| `0001` | Shader translation: every loop gets one branch back. vkd3d-proton's DXIL-to-SPIR-V converter recursed until a stack overflow on loops with several back edges, killing pipeline worker threads. | Impre-visible |
-| `0002` | `VICTORY_TEXTURE_MIP_DROP=0..3`: host copies of large placed textures start that many levels down (off by default). | port by Impre-visible, idea and original code by antikohza |
-| `optional/0003` | Diagnostics: viewport size census with `VICTORY_CARD_SPANS=1`. | Impre-visible |
-| `optional/0004` | `VICTORY_CARD_AWAKE=idle`: keep the clocks up only while the card is idle. | Impre-visible |
-| `optional/0006` | Diagnostics: pipelines left out on purpose are reported as such. | Impre-visible |
-| `optional/0007` | `VICTORY_VIEW_INTEGER=0`: diagnostic switch for typed integer buffer views. | Impre-visible |
+| Guest descriptor read clipping | 6.93 → 6.88 FPS; reads 11.51 → 6.02 MiB/frame | Keep off |
+| Four → six landing workers | 6.93 → 6.87 FPS; landing 39.29 → 34.37 ms | Retain four |
+| 256 → 512 KiB landing jobs | 6.62 → 6.62 FPS | Retain 256 KiB |
+| Indexed coverage lookup | 6.83 → 6.73 accepted FPS | Keep off |
+| Scarlett queue-only port | 6.89 → 6.82 FPS in historical warm windows | No proven throughput gain; ordering-preserving port retained |
+| Scarlett static-sampler cache workaround | Increased warm-start pipeline compilation | Keep isolated |
 
-The optional patches change nothing unless their switch is set. None of them
-was switched on in the measured runs.
+These are screening comparisons, not necessarily statistically significant differences. The project retains negative results to avoid repeating ineffective investigations.
 
-## How to reproduce on Linux
+See [CHANGELOG.md](CHANGELOG.md), [SOURCE_CHANGES.md](CHATGPT_REPORTS/SOURCE_CHANGES.md) and [SCARLETT_REPORT.md](SCARLETT_REPORT.md).
 
-You need: your own copy of the title, a Linux PC with a recent NVIDIA driver,
-a Proton build, `bubblewrap`, systemd (for the memory cap), and to build:
-the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
-`clang`, `lld`, `llvm` and [xwin](https://github.com/Jake-Shadle/xwin).
+## Known limitations
 
-1. Build (cross-build from Linux; `xwin splat --use-winsysroot-style` once
-   for the Windows SDK, accepting its licence). The vendored `cool_fox/`
-   tree already carries patches 0001–0002, so nothing needs cloning or
-   `git am`-ing — just this repository:
-   ```sh
-   # Point at the directory where xwin splat was installed
-   export XWIN_DIR=/path/to/xwin-splat
+| Area | Current status |
+|---|---|
+| Lighting and shadows | Dark interior lighting remains unresolved. The inherited ambient-light stand-in is approximate. |
+| Ray tracing / BVH | Offline translation and synthetic hardware fixtures have passed for selected components. The full builder remains gated pending end-to-end validation. |
+| Missing operations | Hundreds of missing pipeline draws and indirect rejections were observed per frame in earlier gameplay samples. Required graphics work remains incomplete. |
+| Wave64 | Some divergent reductions, lane masks and cross-wave operations still lack correct Wave32 lowering. |
+| Descriptor capacity | Guest requests can exceed the tested host's one-million shader-visible view slots; general virtualization remains incomplete. |
+| Buffer alignment | Some unaligned buffer views are unsupported; exact-byte behavior needs further validation. |
+| Textures and geometry | Character hair and geometry can render correctly in some inspected frames, but intermittent artifacts and texture quality limitations remain. |
+| Memory pressure | Higher buffer caps and sharper textures can increase VRAM usage and system commit pressure. |
+| Resolution | The 1080p presentation size is verified, not the primary internal scene resolution. |
+| DLSS / FSR | Alternative upscaler integration is not implemented. |
+| Frame generation | Deferred; no generated frames in reported benchmarks. |
+| Stability | Limited opening-scene testing; later gameplay, additional GPUs, and long-term correctness remain unverified. |
 
-   # Build victory.exe (cross-build from Linux)
-   scripts/build.sh
-   ```
-   The result is `cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe`.
-   Optional patches (`patches/optional/`, diagnostics and experiments) can be
-   applied on top with `git apply` inside `cool_fox/` if you want them:
-   ```sh
-   cd cool_fox && git apply ../patches/optional/0003-*.patch && cd ..
-   ```
-2. Prepare a Wine prefix: copy `d3d12.dll` and `d3d12core.dll` from
-   vkd3d-proton (we used the one shipped with Proton Experimental) and
-   `dxgi.dll` from DXVK into its `system32`, and install Microsoft's
-   `d3dcompiler_47.dll` (`winetricks d3dcompiler_47`); without it the
-   fork's indirect-argument clamp shader does not compile under Wine and
-   indirect draws are dropped.
-3. Run with the settings of `scripts/settings.env`:
-   ```sh
-   # Set the required paths and environment variables
-   export VICTORY_EXE="$PWD/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe"
-   export GAME_EXE="/path/to/your/own/copy/<its executable>"
-   export PROTON_DIR="/path/to/GE-Proton11-6/files"
-   export WINEPREFIX="/path/to/prefix"
-   export WORK_DIR="/path/to/workdir"
-   export DPMS=1
+See [COMPATIBILITY_STATUS.md](COMPATIBILITY_STATUS.md) for more detailed evidence.
 
-   # Run the game
-   scripts/run.sh 600
-   ```
-   The run is sandboxed (no network, read-only system except `WORK_DIR` and
-   the prefix). The log goes to `WORK_DIR/logs/`; at the end the script prints
-   the median of the last 40 frame statistics lines. The first run translates
-   every shader and is much slower; measure on later runs.
+## Open development reports
 
-## How to reproduce on Windows
+A central goal of this fork is to document AI-assisted engineering openly, including the experiments that did not work. Reports describe the local development state at the time they were recorded; some evidence paths refer to private local artifacts that are not distributed with this repository.
 
-**Not tested by us**: all our runs were under Linux.
+| Document | Contents |
+|---|---|
+| [Latest report](CHATGPT_REPORTS/LATEST_REPORT.md) | Latest recorded checkpoint, profiling findings and pending work |
+| [Source changes](CHATGPT_REPORTS/SOURCE_CHANGES.md) | Implementation details, source references and validation |
+| [Benchmark history](CHATGPT_REPORTS/BENCHMARK_HISTORY.csv) | Historical measurements and experimental configurations |
+| [Shader warm-up](CHATGPT_REPORTS/SHADER_WARMUP_REPORT.md) | Cache and extended runtime investigations |
+| [Report history](CHATGPT_REPORTS/HISTORY/) | Earlier development reports |
+| [Performance results](PERFORMANCE_RESULTS.md) | Detailed benchmark comparisons |
+| [Recommended configuration](RECOMMENDED_CONFIG.md) | Locally tested profiles and experimental options |
+| [Compatibility status](COMPATIBILITY_STATUS.md) | Graphics correctness and unsupported functionality |
+| [Scarlett comparison](SCARLETT_REPORT.md) | Cross-fork comparison and selective integration |
+| [Fix plan](VICTORY_FIX_PLAN.md) | Outstanding engineering tasks |
+| [Upscaling status](UPSCALING_STATUS.md) | Render-resolution investigation and future options |
+| [Frame generation status](FRAME_GENERATION_STATUS.md) | Deferred frame-generation research |
+| [Handoff](HANDOFF.md) | Historical continuation notes |
+| [Publication audit](PUBLICATION_AUDIT.md) | Privacy review scope and remaining redistribution concerns |
 
-> **The patches alone do not give the ~100 ms figure.** Most of the gain comes
-> from three settings (`VICTORY_CARD_BUFFERS_MB` above all, with `VICTORY_CARD_WINDOWS_MB=256`,
-> `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`). Start the
-> title **only with `scripts\run.cmd` (or `run.ps1`)**. Starting `victory.exe`
-> yourself, or cool_fox's own `Play-VIctory.cmd`, runs without them
-> (`Play-VIctory.cmd` also sets `VICTORY_LEVELS_ON_DEMAND=1`): that is the
-> 271–291 ms (about 3.5 fps) or 360–410 ms (about 2.5 fps) row of the table
-> above, not the 100 ms one.
+Git history was sanitized in a separate publication clone. Commit hashes recorded in reports may refer to the original development history rather than the rewritten public commits. Private runtime logs, caches, saved data and binaries are not part of the published review material. The public reports preserve technical findings, not necessarily every supporting local artifact.
 
-> **Reported problem on Windows with GTX 16 / RTX 20 cards (Turing):** a tester
-> with a GTX 1660 SUPER on Windows 11 reports that the fork does not get past
-> the start screens there with NVIDIA's driver, while it does with the software
-> adapter and under Linux
-> ([report](https://github.com/Marvisak/VIctory/issues/2835#issuecomment-7188866396)).
-> If you have such a card on Windows, expect this; on newer cards it is not
-> reported.
+## Roadmap
 
-With that said: cool_fox itself is developed and played on Windows, and the
-patches and settings are the same there, so this should work, but the figures
-above are Linux figures. The texture and memory settings matter most on
-memory-constrained cards.
+The next priority is identifying what actually delays presentation, rather than optimizing subsystems solely because their counters are large.
 
-### What you need
+- [ ] Complete the controlled warm-cache run and warmed restart.
+- [ ] Profile the CPU/GPU critical path and expensive compatibility-layer GPU operations.
+- [ ] Investigate redundant resource lookups and texture-queue contention without dropping UAV tracking, alias handling or resource transitions.
+- [ ] Improve descriptor processing, memory coherency and CPU/GPU overlap based on measured evidence.
+- [ ] Validate full BVH stages, fix lighting and reduce required operation failures.
+- [ ] Improve Wave64 translation and descriptor virtualization.
+- [ ] Identify actual internal rendering and native upscaler dimensions.
+- [ ] Investigate supported alternative upscaling after the rendering path is validated.
+- [ ] Revisit compatible frame generation only when base performance and correctness justify it.
+- [ ] Establish redistribution clearance and a buildable public source tree.
 
-- Windows 10/11 x64
-- Your own copy of the title (this repo contains **no game files**)
-- A Direct3D 12 card with a recent driver
-- [Git for Windows](https://git-scm.com/download/win)
-- [Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs itself)
-- Visual Studio Build Tools with **"Desktop development with C++"** and a Windows SDK
-
-### Step 1 — Clone the repository
-
-```powershell
-git clone https://github.com/WASDeKeys/victory-gtx1660
-cd victory-gtx1660
-```
-
-The vendored `cool_fox/` tree already carries patches 0001–0002, so nothing
-needs cloning or `git am`-ing besides this repository.
-
-Optional patches (`patches/optional/`, diagnostics and experiments) can be
-applied on top if you want them:
-
-```powershell
-cd cool_fox; git apply ..\patches\optional\0003-*.patch; cd ..
-```
-
-### Step 2 — Build victory.exe
-
-From inside the repo folder:
-
-```powershell
-# Build victory.exe in release mode with diagnostics feature.
-# This runs: cargo build -p victory --target x86_64-pc-windows-msvc --release --locked --features diagnostics
-.\scripts\build.ps1
-```
-
-`build.ps1` accepts optional cargo args; with no args it uses
-`--release --locked --features diagnostics`. The diagnostics feature is required
-— without it there is no frame statistics line in the log, so you cannot
-measure frame time.
-
-First build: **10–20 minutes**. Later builds are much faster (incremental).
-
-When it finishes, the result is:
-
-```
-cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
-```
-
-Verify it exists:
-
-```powershell
-ls cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
-```
-
-### Step 3 — Run the game
-
-Launch **only** through `scripts\run.cmd` (or `run.ps1`) so the memory
-settings are applied. Starting `victory.exe` yourself, or cool_fox's own
-`Play-VIctory.cmd`, runs without them — that is the 271–291 ms row, not the
-100 ms one.
-
-```powershell
-# Run victory.exe with your own copy of the game executable
-.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
-```
-
-Replace `D:\path\to\your\copy\<its executable>` with the real path to your
-game's `.exe`. Keep the quotes if the path has spaces.
-
-The script clears leftover `VICTORY_*` variables, applies the settings, and
-prints `victory-gtx1660: settings in effect:` with every value. Check this
-list before comparing frame rates.
-
-### Step 4 — Expect the first run to be slow
-
-The first run translates every shader and compiles pipelines: expect several
-slow minutes and stutter. **Judge the speed on the second run or later**,
-when caches are warm. The fork keeps its caches under
-`%LOCALAPPDATA%\victory\cache` unless `VICTORY_CACHE_DIR` is set (see
-`victory.example.toml` in the fork).
-
-### Tuning for mid-range and laptop cards
-
-`launch.ps1` now defaults to the low-memory OOM-safe profile
-(`CARD_BUFFERS_MB=512`, `MipDrop=3`, `LEVELS_ON_DEMAND=1`,
-`STAGING_KEPT=4`, `MAX_PRELUDES=32`) so the game starts without
-`0x8007000E` OOM crashes on 6 GB / low-RAM cards. These are the same
-Windows OOM mitigation values below.
-
-If you want the sharper-texture measured profile instead (faster but more
-memory, ~100 ms/frame on the measured card):
-
-```powershell
-$env:VICTORY_CARD_BUFFERS_MB = '1024'
-$env:VICTORY_CARD_WINDOWS_MB = '256'
-$env:VICTORY_TEXTURE_MIP_DROP = '1'
-$env:VICTORY_LEVELS_ON_DEMAND = '1'
-$env:VICTORY_STAGING_KEPT = '2'
-$env:VICTORY_MAX_PRELUDES = '16'
-
-.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>" -KeepEnv
-```
-
-`-KeepEnv` keeps the variables you set instead of letting the script clear
-them. If video memory runs short (stutter, textures missing), try
-`-MipDrop 2` or `-MipDrop 3`. `-Console series-x` selects the larger console
-profile (slower).
-
-### Windows OOM mitigation (now the default in `launch.ps1`)
-
-A Windows run hit `0x8007000E` OOM ("no host list for a state prelude") with
-private memory climbing to ~15.7 GB and commit headroom exhausted. The
-following overrides reduce commit pressure and are now set automatically by
-`launch.ps1` and `timed-run.ps1`:
-
-| Variable | Value | Purpose |
-|---|---|---|
-| `VICTORY_CARD_BUFFERS_MB` | `512` | Card-side buffer copy cap (lowered from measured 1024 for mid-range cards) |
-| `VICTORY_CARD_BUFFERS_MIN_KB` | `64` | Pool every title buffer, no minimum skip |
-| `VICTORY_LEVELS_ON_DEMAND` | `1` | Textures made level by level on demand |
-| `VICTORY_RAW_VIEWS` | `0` | Raw views off |
-| `VICTORY_GROUP_SYNC` | `2` | Group sync level |
-| `VICTORY_WAVE_LOCAL` | `idiom` | Wave local mode |
-| `VICTORY_WAVE_WIDE` | `` (empty) | Wave wide mode off |
-| `VICTORY_PIPELINE_BOOK` | `1` | Pipeline book enabled |
-| `VICTORY_STAGING_KEPT` | `4` | Idle staging blocks kept (default 8; frees ~256 MiB commit) |
-| `VICTORY_MAX_PRELUDES` | `32` | Idle preludes kept (default 64; each ~5 MB commit; 0 keeps none) |
-
-`VICTORY_STAGING_KEPT` overrides the hard-coded `STAGING_KEPT = 8` idle
-staging blocks (each 64 MiB of PC commit memory). Cutting to 4 frees ~256 MiB
-earlier.
-
-`VICTORY_MAX_PRELUDES` caps idle preludes kept (default 64). Each prelude is
-one command allocator plus one closed command list — about 5 MB of PC commit
-memory. Used preludes now go back to a pool (`PRELUDE_IDLE`) and are reused;
-`PreludeSlot::Drop` returns a prelude to the pool while idle count is under
-`VICTORY_MAX_PRELUDES`, above that it is released.
-
-### How to compare frame rates with ours
-
-Our figures are the median of the log's frame statistics line
-(`... fps, ... ms/frame (... preparing ...)`, diagnostics build,
-`VICTORY_LOG=info`, which `run.ps1` sets) over the steady first scene, Series
-S profile, second run or later (warm caches), with no frame generation.
-
-A figure from another fork is often taken differently: some use the Series X
-profile with a capped output resolution (`VICTORY_RESOLUTION=1920x1080`),
-a lower render scale, skipped ray-tracing passes, a window-title counter, or
-a driver's frame generation (which doubles what you see, not what the game
-computes). Compare like with like.
-
-### Whether the memory settings took effect
-
-Shows in the same log (diagnostics build): the line
-"host copies in the card's memory: N copies X MB ..." should read about
-1,000 MB or more once the scene runs. Copies go to the card only while a
-fifth of the card's memory budget is free; on Windows that budget is what the
-system grants this process (other programs and the desktop take their share),
-so fewer copies may fit than under Linux. If X stays near 500 MB, close other
-programs that use the GPU or try `-MipDrop 3`.
-
-If something goes wrong, compare with the fork's own launcher
-(`Play-VIctory.cmd` in cool_fox) to tell a problem of these patches from one
-of the fork.
-
-## Credits
-
-- [VIctory](https://github.com/Marvisak/VIctory) by Marvisak and its
-  contributors: the compatibility layer itself.
-- [codec-d/cool_fox](https://github.com/codec-d/cool_fox) by codec_d: the fork
-  these patches apply to, and its launcher's settings.
-- [avatarmanz/VIctory-7900XTX](https://github.com/avatarmanz/VIctory-7900XTX):
-  the tree cool_fox derives from.
-- [fxceless/victory-fork](https://github.com/fxceless/victory-fork): the fork
-  that one started from.
-- antikohza: the texture mip drop (ztrx PR #84, after Marvisak/VIctory#2146),
-  ported here in patch 0002.
-- The patches were written with [Claude Code](https://claude.com/claude-code).
-
-## Licence
-
-GPL-3.0-or-later, as VIctory and cool_fox; the patches are derived work of
-cool_fox. See [LICENSE](LICENSE).
+Performance milestones of 10, 15, 20 and eventually 30 real rendered FPS are research goals, not promised results. Graphics correctness, reproducibility and stability remain essential.
 
 ## Publication and build status
 
-This repository preserves the development history, performance
-benchmarks, and AI-assisted engineering reports.
+The public repository is a source and research snapshot, not a supported binary distribution. The BCPack table at `cool_fox/crates/victory-formats/src/bcpack-tables.bin` has been omitted from the public history pending confirmation of its redistribution rights. The inherited [asset policy](cool_fox/docs/asset-policy.md) explicitly states that this table is outside the repository's license. The existing code depends on it, so a normal build of this public checkout is currently incomplete.
 
-Personal information has been sanitized from Git history.
-Historical commit hashes mentioned in reports may refer to
-the original development repository.
+The inherited Windows and Linux build/launch scripts are retained as development material; earlier successful local builds do not demonstrate that this public snapshot can compile. There is no supported public installation or gameplay procedure at this stage. Use only authorized materials for development and testing.
 
-The bcpack-tables.bin dependency has been excluded pending
-confirmation of redistribution rights. Consequently, this
-public source snapshot is not currently buildable as-is.
+A limited privacy review and history pattern scan were performed. They do not constitute exhaustive security, provenance or legal certification. Redistribution permissions for imported materials must be independently confirmed before publication or further distribution. Preserve applicable licenses, notices and attribution. Do not submit proprietary title assets, extracted code or data, private credentials, unauthorized captures or personal logs.
 
-Some experimental optimizations remain unfinished or unverified.
+## Historical upstream benchmarks (Linux)
+
+The original WASDeKeys README described work against [codec-d/cool_fox](https://github.com/codec-d/cool_fox) at `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`. It reported the following Linux/Wine results on an Intel Core i7-13700KF system with 62 GB RAM, using the Series S profile and the first playable scene:
+
+| Upstream configuration | Frame time | Reported FPS | Runs |
+|---|---:|---:|---:|
+| Unmodified cool_fox, original launcher settings | 360–410 ms | 2.4–2.8 | 1 |
+| Patches 0001–0002, mip drop 2 | 271–291 ms | 3.4–3.7 | 5 |
+| 1,024 MiB buffers, 256 MiB windows, mip drop 1 | 98–112 ms | 9–10 | 5 |
+| 1,024 MiB buffers, 768 MiB windows, mip drop 3 | 100–106 ms | 9.4–9.9 | 5 |
+
+These are **upstream measurements**, not results from this fork's RTX 3060 Ti Windows testing. The upstream report also described missing head geometry, deformed hair, approximate lighting and limited scene coverage. See [RESULTS.md](RESULTS.md) for the inherited methodology and measurements. Historical upstream setup instructions and patch descriptions remain in the earlier README revisions and patch files.
+
+## Contributing
+
+Technical feedback, reproducible bug reports, synthetic correctness fixtures, benchmark analyses and carefully scoped performance patches are welcome. For useful comparisons, report hardware, OS, source revision, executable identity, cache state, scene/workload, configuration, sample duration, frame-time percentiles and observed graphics defects. Keep profiling captures separate from throughput tests, and distinguish accepted presentations from independently measured rendered or displayed frames.
+
+Do not include proprietary content or personal information in issue reports or patches. Preserve original contributor attribution and prefer small, reversible changes with documented correctness tests.
+
+## Credits
+
+- [WASDeKeys/victory-low-end-pc](https://github.com/WASDeKeys/victory-low-end-pc) — primary development base and inherited optimization work.
+- [VIctory](https://github.com/Marvisak/VIctory) — Marvisak and contributors, original compatibility layer.
+- [codec-d/cool_fox](https://github.com/codec-d/cool_fox) — codec_d, inherited fork and launcher settings.
+- [avatarmanz/VIctory-7900XTX](https://github.com/avatarmanz/VIctory-7900XTX) — ancestor fork.
+- [fxceless/victory-fork](https://github.com/fxceless/victory-fork) — upstream development and selected fixes.
+- [Yaekai/victory-scarlett-3070](https://github.com/Yaekai/victory-scarlett-3070) — selective optimization comparison and ported queue improvements.
+- Impre-visible — inherited shader-loop patch, diagnostics patches and texture mip-drop port.
+- antikohza — original texture mip-drop idea and implementation.
+- Claude Code — AI assistance credited by the inherited project for its original patches.
+- OpenAI Codex and ChatGPT — implementation and technical review assistance for this fork's subsequent development.
+
+This is an independent project, not affiliated with or endorsed by the title developer, publisher or upstream Victory maintainers.
+
+## License
+
+The inherited project identifies its covered source and patches as GPL-3.0-or-later. See [LICENSE](LICENSE), the [vendored license](cool_fox/LICENSE) and individual source notices. Third-party material may be subject to separate terms; the repository license does not establish rights to excluded proprietary data. The BCPack table is not distributed in this public snapshot.
